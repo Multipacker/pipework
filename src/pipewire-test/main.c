@@ -417,6 +417,41 @@ global const struct pw_registry_events registry_events = {
 #define global static
 };
 
+typedef struct Pipewire_Roundtrip Pipewire_Roundtrip;
+struct Pipewire_Roundtrip {
+    S32                  pending;
+    struct pw_main_loop *loop;
+};
+
+internal Void pipewire_core_roundtrip_done(Void *data, U32 id, S32 seq) {
+    Pipewire_Roundtrip *roundtrip = (Pipewire_Roundtrip *) data;
+    if (id == PW_ID_CORE && seq == roundtrip->pending) {
+        pw_main_loop_quit(roundtrip->loop);
+    }
+}
+
+global const struct pw_core_events pipewire_core_roundtrip_events = {
+    PW_VERSION_CORE_EVENTS,
+    .done = pipewire_core_roundtrip_done,
+};
+
+internal Void pipewire_roundtrip(struct pw_core *core, struct pw_main_loop *loop) {
+    Pipewire_Roundtrip roundtrip = { 0 };
+    struct spa_hook core_listener = { 0 };
+
+    pw_core_add_listener(core, &core_listener, &pipewire_core_roundtrip_events, &roundtrip);
+
+    roundtrip.loop = loop;
+    roundtrip.pending = pw_core_sync(core, PW_ID_CORE, 0);
+
+    int error = pw_main_loop_run(loop);
+    if (error < 0) {
+        fprintf(stderr, "main_loop_run error: %d\n", error);
+    }
+
+    spa_hook_remove(&core_listener);
+}
+
 internal S32 os_run(Str8List arguments) {
     pw_init(0, 0);
 
@@ -426,10 +461,13 @@ internal S32 os_run(Str8List arguments) {
     state.core     = pw_context_connect(state.context, 0, 0);
     state.registry = pw_core_get_registry(state.core, PW_VERSION_REGISTRY, 0);
     
-    spa_zero(state.registry_listener);
     pw_registry_add_listener(state.registry, &state.registry_listener, &registry_events, 0);
 
-    pw_main_loop_run(state.loop);
+    // NOTE(simon): Register all globals.
+    pipewire_roundtrip(state.core, state.loop);
+
+    // NOTE(simon): Gather all events from the globals.
+    pipewire_roundtrip(state.core, state.loop);
 
     pw_proxy_destroy((struct pw_proxy *) state.registry);
     pw_core_disconnect(state.core);
