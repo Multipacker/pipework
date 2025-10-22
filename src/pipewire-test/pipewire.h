@@ -6,19 +6,48 @@ struct Pipewire_Handle {
     U64 u64[2];
 };
 
+global U64 pipewire_string_chunk_sizes[] = {
+    16,
+    64,
+    256,
+    1024,
+    4096,
+    16384,
+    0xFFFFFFFFFFFFFFFF,
+};
+
+typedef struct Pipewire_StringChunkNode Pipewire_StringChunkNode;
+struct Pipewire_StringChunkNode {
+    Pipewire_StringChunkNode *next;
+    U64 size;
+};
+
+typedef struct Pipewire_Property Pipewire_Property;
+struct Pipewire_Property {
+    Pipewire_Property *next;
+    Pipewire_Property *previous;
+    Str8 name;
+    Str8 value;
+};
+
+global Pipewire_Property pipewire_nil_property = { 0 };
+
 typedef enum {
-    PipeWire_Object_Client,
-    PipeWire_Object_Device,
-    PipeWire_Object_Node,
-    PipeWire_Object_Port,
-    PipeWire_Object_Link,
-} PipeWire_ObjectKind;
+    Pipewire_Object_Module,
+    Pipewire_Object_Factory,
+    Pipewire_Object_Client,
+    Pipewire_Object_Device,
+    Pipewire_Object_Node,
+    Pipewire_Object_Port,
+    Pipewire_Object_Link,
+    Pipewire_Object_COUNT,
+} Pipewire_ObjectKind;
 
 typedef struct Pipewire_Object Pipewire_Object;
 struct Pipewire_Object {
     Pipewire_Object *all_next;
     Pipewire_Object *all_previous;
-    U64             generation;
+    U64              generation;
 
     Pipewire_Object *parent;
     Pipewire_Object *first;
@@ -26,24 +55,15 @@ struct Pipewire_Object {
     Pipewire_Object *next;
     Pipewire_Object *previous;
 
+    Pipewire_ObjectKind kind;
     U32 id;
 
-    PipeWire_ObjectKind kind;
+    Pipewire_Property *first_property;
+    Pipewire_Property *last_property;
 
-    struct pw_client *client;
-    struct spa_hook   client_listener;
 
-    struct pw_device *device;
-    struct spa_hook   device_listener;
-
-    struct pw_node  *node;
-    struct spa_hook  node_listener;
-
-    struct pw_port  *port;
-    struct spa_hook  port_listener;
-
-    struct pw_link  *link;
-    struct spa_hook  link_listener;
+    struct pw_proxy *proxy;
+    struct spa_hook  listener;
 };
 
 global Pipewire_Object pipewire_nil_object = {
@@ -61,6 +81,8 @@ struct Pipewire_State {
     Pipewire_Object *first_object;
     Pipewire_Object *last_object;
     Pipewire_Object *object_freelist;
+    Pipewire_StringChunkNode *string_chunk_freelist[array_count(pipewire_string_chunk_sizes)];
+    Pipewire_Property *property_freelist;
 
     struct pw_main_loop *loop;
     struct pw_context   *context;
@@ -78,10 +100,38 @@ internal Void pipewire_remove_child(Pipewire_Object *parent, Pipewire_Object *ch
 internal Pipewire_Object *pipewire_create_object(U32 id);
 internal Void             pipewire_destroy_object(Pipewire_Object *object);
 
+internal B32                pipewire_property_is_nil(Pipewire_Property *property);
+internal Void               pipewire_object_update_property(Pipewire_Object *object, Str8 name, Str8 value);
+internal Pipewire_Property *pipewire_object_property_from_name(Pipewire_Object *object, Str8 name);
+internal Str8               pipewire_object_property_string_from_name(Pipewire_Object *object, Str8 name);
+internal U32                pipewire_object_property_u32_from_name(Pipewire_Object *object, Str8 name);
+
+internal U64  pipewire_string_chunk_index_from_size(U64 size);
+internal Str8 pipewire_string_allocate(Str8 string);
+internal Void pipewire_string_free(Str8 string);
+
 internal Pipewire_Handle  pipewire_handle_from_object(Pipewire_Object *object);
 internal Pipewire_Object *pipewire_object_from_handle(Pipewire_Handle handle);
 
 internal Pipewire_Object *pipewire_object_from_id(U32 id);
+
+
+
+internal Void pipewire_module_info(Void *data, const struct pw_module_info *info);
+
+global const struct pw_module_events module_events = {
+    PW_VERSION_FACTORY_EVENTS,
+    .info = pipewire_module_info,
+};
+
+
+
+internal Void pipewire_factory_info(Void *data, const struct pw_factory_info *info);
+
+global const struct pw_factory_events factory_events = {
+    PW_VERSION_FACTORY_EVENTS,
+    .info = pipewire_factory_info,
+};
 
 
 

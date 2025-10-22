@@ -137,6 +137,11 @@ struct State {
     Gfx_Window     window;
     Render_Window  render;
     UI_Context    *ui;
+
+    Pipewire_Handle selected_object;
+    Pipewire_Handle selected_object_next;
+    Pipewire_Handle hovered_object;
+    Pipewire_Handle hovered_object_next;
 };
 
 global State *state;
@@ -158,6 +163,129 @@ internal V4F32 color_from_theme(ThemeColor color) {
 internal UI_Palette palette_from_theme(ThemePalette palette) {
     UI_Palette result = state->palettes[palette];
     return result;
+}
+
+internal Str8 kind_from_object(Pipewire_Object *object) {
+    Str8 result = { 0 };
+
+    switch (object->kind) {
+        case Pipewire_Object_Module: {
+            result = str8_literal("Module");
+        } break;
+        case Pipewire_Object_Factory: {
+            result = str8_literal("Factory");
+        } break;
+        case Pipewire_Object_Client: {
+            result = str8_literal("Client");
+        } break;
+        case Pipewire_Object_Device: {
+            result = str8_literal("Device");
+        } break;
+        case Pipewire_Object_Node: {
+            result = str8_literal("Node");
+        } break;
+        case Pipewire_Object_Port: {
+            result = str8_literal("Port");
+        } break;
+        case Pipewire_Object_Link: {
+            result = str8_literal("Link");
+        } break;
+        case Pipewire_Object_COUNT: {
+        } break;
+    }
+
+    return result;
+}
+
+internal Str8 name_from_object(Pipewire_Object *object) {
+    Str8 name = { 0 };
+
+    switch (object->kind) {
+        case Pipewire_Object_Module: {
+            name = pipewire_object_property_string_from_name(object, str8_literal("module.name"));
+
+            if (!name.size) {
+                name = str8_format(frame_arena(), "Module %u", object->id);
+            }
+        } break;
+        case Pipewire_Object_Factory: {
+            name = pipewire_object_property_string_from_name(object, str8_literal("factory.name"));
+
+            if (!name.size) {
+                name = str8_format(frame_arena(), "Factory %u", object->id);
+            }
+        } break;
+        case Pipewire_Object_Client: {
+            name = pipewire_object_property_string_from_name(object, str8_literal("client.name"));
+
+            if (!name.size) {
+                name = pipewire_object_property_string_from_name(object, str8_literal("application.name"));
+            }
+
+            if (!name.size) {
+                name = str8_format(frame_arena(), "Client %u", object->id);
+            }
+        } break;
+        case Pipewire_Object_Device: {
+            name = pipewire_object_property_string_from_name(object, str8_literal("device.nick"));
+
+            if (!name.size) {
+                name = pipewire_object_property_string_from_name(object, str8_literal("device.name"));
+            }
+
+            if (!name.size) {
+                name = str8_format(frame_arena(), "Device %u", object->id);
+            }
+        } break;
+        case Pipewire_Object_Node: {
+            name = pipewire_object_property_string_from_name(object, str8_literal("node.nick"));
+
+            if (!name.size) {
+                name = pipewire_object_property_string_from_name(object, str8_literal("node.name"));
+            }
+
+            if (!name.size) {
+                name = str8_format(frame_arena(), "Node %u", object->id);
+            }
+        } break;
+        case Pipewire_Object_Port: {
+            name = pipewire_object_property_string_from_name(object, str8_literal("port.alias"));
+
+            if (!name.size) {
+                name = pipewire_object_property_string_from_name(object, str8_literal("port.name"));
+            }
+
+            if (!name.size) {
+                name = str8_format(frame_arena(), "Port %u", object->id);
+            }
+        } break;
+        case Pipewire_Object_Link: {
+            name = str8_format(frame_arena(), "Link %u", object->id);
+        } break;
+        case Pipewire_Object_COUNT: {
+        } break;
+    }
+
+    return name;
+}
+
+internal UI_Input object_button(Pipewire_Object *object) {
+    Str8 name = name_from_object(object);
+
+    if (pipewire_object_from_handle(state->hovered_object) == object) {
+        UI_Palette palette = ui_palette_top();
+        palette.background = color_from_theme(ThemeColor_Focus);
+        ui_palette_next(palette);
+    }
+
+    UI_Input input = ui_button_format("%.*s###%p", str8_expand(name), object);
+    if (input.flags & UI_InputFlag_Hovering) {
+        state->hovered_object_next = pipewire_handle_from_object(object);
+    }
+    if (input.flags & UI_InputFlag_Clicked) {
+        state->selected_object_next = pipewire_handle_from_object(object);
+    }
+    return input;
 }
 
 internal Void update(Void) {
@@ -214,6 +342,34 @@ internal Void update(Void) {
         }
     }
 
+    // NOTE(simon): Build palettes
+    for (ThemePalette code = 0; code < ThemePalette_COUNT; ++code) {
+        state->palettes[code].cursor    = state->theme.cursor;
+        state->palettes[code].selection = state->theme.selection;
+    }
+    state->palettes[ThemePalette_Base].background = state->theme.base_background;
+    state->palettes[ThemePalette_Base].border     = state->theme.base_border;
+    state->palettes[ThemePalette_Base].text       = state->theme.text;
+    state->palettes[ThemePalette_TitleBar].background = state->theme.title_bar_background;
+    state->palettes[ThemePalette_TitleBar].border     = state->theme.title_bar_border;
+    state->palettes[ThemePalette_TitleBar].text       = state->theme.text;
+    state->palettes[ThemePalette_Button].background = state->theme.button_background;
+    state->palettes[ThemePalette_Button].border     = state->theme.button_border;
+    state->palettes[ThemePalette_Button].text       = state->theme.text;
+    state->palettes[ThemePalette_SecondaryButton].background = state->theme.secondary_button_background;
+    state->palettes[ThemePalette_SecondaryButton].border     = state->theme.secondary_button_border;
+    state->palettes[ThemePalette_SecondaryButton].text       = state->theme.text;
+    state->palettes[ThemePalette_Tab].background = state->theme.tab_background;
+    state->palettes[ThemePalette_Tab].border     = state->theme.tab_border;
+    state->palettes[ThemePalette_Tab].text       = state->theme.text;
+    state->palettes[ThemePalette_InactiveTab].background = state->theme.inactive_tab_background;
+    state->palettes[ThemePalette_InactiveTab].border     = state->theme.inactive_tab_border;
+    state->palettes[ThemePalette_InactiveTab].text       = state->theme.text;
+    state->palettes[ThemePalette_DropSiteOverlay].background = state->theme.drop_site_overlay;
+    state->palettes[ThemePalette_DropSiteOverlay].border     = state->theme.drop_site_overlay;
+    state->palettes[ThemePalette_DropSiteOverlay].text       = state->theme.text;
+
+    // NOTE(simon): Build icon info.
     UI_IconInfo icon_info = { 0 };
     icon_info.icon_font = font_cache_font_from_static_data(&icon_font);
     icon_info.icon_kind_text[UI_IconKind_Minimize]   = icon_kind_text[UI_IconKind_Minimize];
@@ -241,26 +397,100 @@ internal Void update(Void) {
 
     ui_select_state(state->ui);
     ui_begin(state->window, &ui_events, &icon_info, 1.0f / 60.0f);
-    UI_Palette palette = {
-        .background = v4f32(0.0f, 0.0f, 0.0f, 1.0f),
-        .text       = v4f32(1.0f, 1.0f, 1.0f, 1.0f),
-        .border     = v4f32(0.5f, 0.5f, 0.5f, 1.0f),
-        .cursor     = v4f32(0.5f, 0.5f, 0.5f, 1.0f),
-        .selection  = v4f32(0.5f, 0.5f, 0.5f, 1.0f),
-    };
-    ui_palette_push(palette);
+    ui_palette_push(palette_from_theme(ThemePalette_Base));
     ui_font_push(font_cache_font_from_static_data(&default_font));
     ui_font_size_push((U32) (state->font_size * gfx_dpi_from_window(state->window) / 72.0f));
 
+    S64 object_count = { 0 };
     for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-        if (object->kind != PipeWire_Object_Node) {
-            continue;
+        ++object_count;
+    }
+    Pipewire_Object **objects = arena_push_array_no_zero(frame_arena(), Pipewire_Object *, (U64) object_count);
+    Pipewire_Object **object_ptr = objects;
+    for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
+        *object_ptr = object;
+        ++object_ptr;
+    }
+
+    V2F32 size = v2f32((F32) client_size.width / 2.0f, (F32) client_size.height);
+    F32 row_height = 2.0f * (F32) ui_font_size_top();
+    local UI_ScrollPosition scroll_position = { 0 };
+
+    R1S64 visible_range = { 0 };
+    ui_text_x_padding(5.0f)
+    ui_width(ui_size_fill())
+    ui_height(ui_size_fill())
+    ui_row() {
+        ui_palette(palette_from_theme(ThemePalette_Button))
+        ui_scroll_region(size, row_height, object_count, &visible_range, 0, &scroll_position) {
+            ui_width(ui_size_fill())
+            ui_height(ui_size_pixels(row_height, 1.0f))
+            for (S64 i = visible_range.min; i < visible_range.max; ++i) {
+                Pipewire_Object *object = objects[i];
+                object_button(object );
+            }
         }
 
-        ui_width_next(ui_size_text_content(0.0f, 1.0f));
-        ui_height_next(ui_size_text_content(0.0f, 1.0f));
-        ui_label_format("%p", object);
+        Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
+        ui_width(ui_size_pixels(size.width, 1.0f))
+        ui_height(ui_size_fill())
+        ui_column()
+        if (!pipewire_object_is_nil(selected_object)) {
+            ui_height(ui_size_children_sum(1.0f))
+            ui_row()
+            ui_width(ui_size_text_content(0, 1.0f))
+            ui_height(ui_size_text_content(0, 1.0f)) {
+                ui_label(kind_from_object(selected_object));
+                ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+                ui_label(name_from_object(selected_object));
+            }
+
+            ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+
+            ui_row() {
+                ui_width_push(ui_size_pixels(size.width / 2.0f, 1.0f));
+                UI_Box *name_column_box = ui_column_begin();
+                ui_width_next(ui_size_text_content(0, 1.0f));
+                ui_height_next(ui_size_text_content(0, 1.0f));
+                ui_label(str8_literal("Name"));
+                ui_column_end();
+
+                UI_Box *value_column_box = ui_column_begin();
+                ui_width_next(ui_size_text_content(0, 1.0f));
+                ui_height_next(ui_size_text_content(0, 1.0f));
+                ui_label(str8_literal("Value"));
+                ui_column_end();
+                ui_width_pop();
+
+                ui_width(ui_size_text_content(0, 1.0f))
+                ui_height(ui_size_text_content(0, 1.0f))
+                for (Pipewire_Property *property = selected_object->first_property; property; property = property->next) {
+                    Pipewire_Object *reference = &pipewire_nil_object;
+
+                    Str8 last_component = str8_skip(property->name, 1 + str8_last_index_of(property->name, '.'));
+                    if (str8_equal(last_component, str8_literal("id")) || str8_equal(last_component, str8_literal("client")) || str8_equal(last_component, str8_literal("device")) || str8_equal(last_component, str8_literal("node")) || str8_equal(last_component, str8_literal("port"))) {
+                        U32 id = pipewire_object_property_u32_from_name(selected_object, property->name);
+                        reference = pipewire_object_from_id(id);
+                    }
+
+                    ui_parent_next(name_column_box);
+                    ui_label(property->name);
+                    ui_parent_next(value_column_box);
+
+                    if (!pipewire_object_is_nil(reference)) {
+                        ui_palette_next(palette_from_theme(ThemePalette_Button));
+                        object_button(reference);
+                    } else {
+                        ui_label(property->value);
+                    }
+                }
+            }
+        }
     }
+
+    state->selected_object = state->selected_object_next;
+    state->hovered_object  = state->hovered_object_next;
+    memory_zero_struct(&state->hovered_object_next);
 
     ui_font_size_pop();
     ui_font_pop();
