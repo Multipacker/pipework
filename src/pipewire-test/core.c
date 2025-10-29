@@ -29,6 +29,9 @@ internal Str8 kind_from_object(Pipewire_Object *object) {
     Str8 result = { 0 };
 
     switch (object->kind) {
+        case Pipewire_Object_Null: {
+            result = str8_literal("Null");
+        } break;
         case Pipewire_Object_Module: {
             result = str8_literal("Module");
         } break;
@@ -61,6 +64,9 @@ internal Str8 name_from_object(Pipewire_Object *object) {
     Str8 name = { 0 };
 
     switch (object->kind) {
+        case Pipewire_Object_Null: {
+            name = str8_literal("Null");
+        } break;
         case Pipewire_Object_Module: {
             name = pipewire_object_property_string_from_name(object, str8_literal("module.name"));
 
@@ -329,6 +335,8 @@ internal Void update(Void) {
             ui_width(ui_size_text_content(0, 1.0f))
             ui_height(ui_size_text_content(0, 1.0f))
             switch (selected_object->kind) {
+                case Pipewire_Object_Null: {
+                } break;
                 case Pipewire_Object_Module: {
                 } break;
                 case Pipewire_Object_Factory: {
@@ -551,14 +559,25 @@ internal Void update(Void) {
                         Str8 direction = pipewire_object_property_string_from_name(child, str8_literal("port.direction"));
                         Str8 port_name = pipewire_object_property_string_from_name(child, str8_literal("port.name"));
 
+                        UI_Input input = { 0 };
                         if (str8_equal(direction, str8_literal("in"))) {
                             ui_parent_next(input_column);
                             ui_text_align_next(UI_TextAlign_Left);
-                            port_node->box = ui_label_format("%.*s###port_%p", str8_expand(port_name), child);
-                        }  else if (str8_equal(direction, str8_literal("out"))) {
+                            input = ui_button_format("%.*s###port_%p", str8_expand(port_name), child);
+                        } else if (str8_equal(direction, str8_literal("out"))) {
                             ui_parent_next(output_column);
                             ui_text_align_next(UI_TextAlign_Right);
-                            port_node->box = ui_label_format("%.*s###port_%p", str8_expand(port_name), child);
+                            input = ui_button_format("%.*s###port_%p", str8_expand(port_name), child);
+                        }
+
+                        port_node->box = input.box;
+                        if (input.flags & UI_InputFlag_Clicked) {
+                            if (!pipewire_object_is_nil(pipewire_object_from_handle(state->selected_port))) {
+                                pipewire_link(state->selected_port, pipewire_handle_from_object(child));
+                                state->selected_port = pipewire_handle_from_object(&pipewire_nil_object);
+                            } else {
+                                state->selected_port = pipewire_handle_from_object(child);
+                            }
                         }
 
                         if (port_node->box) {

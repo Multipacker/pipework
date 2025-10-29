@@ -141,6 +141,8 @@ struct State {
     Pipewire_Handle selected_object_next;
     Pipewire_Handle hovered_object;
     Pipewire_Handle hovered_object_next;
+
+    Pipewire_Handle selected_port;
 };
 
 global State *state;

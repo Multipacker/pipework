@@ -214,6 +214,52 @@ internal Pipewire_Object *pipewire_object_from_id(U32 id) {
 
 
 
+internal Void pipewire_link(Pipewire_Handle output_handle, Pipewire_Handle input_handle) {
+    Pipewire_Object *output = pipewire_object_from_handle(output_handle);
+    Pipewire_Object *input  = pipewire_object_from_handle(input_handle);
+
+    B32 good = true;
+
+    struct pw_properties *properties = pw_properties_new(
+        PW_KEY_OBJECT_LINGER, "true",
+        NULL
+    );
+
+    // NOTE(simon): Fill output object.
+    if (output->kind == Pipewire_Object_Port) {
+        pw_properties_setf(properties, PW_KEY_LINK_OUTPUT_PORT, "%u", output->id);
+    } else if (output->kind == Pipewire_Object_Node) {
+        pw_properties_setf(properties, PW_KEY_LINK_OUTPUT_NODE, "%u", output->id);
+    } else {
+        good = false;
+    }
+
+    // NOTE(simon): Fill input object.
+    if (input->kind == Pipewire_Object_Port) {
+        pw_properties_setf(properties, PW_KEY_LINK_INPUT_PORT, "%u", input->id);
+    } else if (input->kind == Pipewire_Object_Node) {
+        pw_properties_setf(properties, PW_KEY_LINK_INPUT_NODE, "%u", input->id);
+    } else {
+        good = false;
+    }
+
+    // NOTE(simon): Create the link if we could fill out all required
+    // properties.
+    if (good) {
+        pw_core_create_object(
+            pipewire_state->core,
+            "link-factory",
+            PW_TYPE_INTERFACE_Link,
+            PW_VERSION_LINK,
+            &properties->dict, 0
+        );
+    }
+
+    pw_properties_free(properties);
+}
+
+
+
 internal Void pipewire_module_info(Void *data, const struct pw_module_info *info) {
     Pipewire_Object *module = (Pipewire_Object *) data;
 

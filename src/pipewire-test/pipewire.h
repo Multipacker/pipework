@@ -45,6 +45,7 @@ struct Pipewire_Property {
 global Pipewire_Property pipewire_nil_property = { 0 };
 
 typedef enum {
+    Pipewire_Object_Null,
     Pipewire_Object_Module,
     Pipewire_Object_Factory,
     Pipewire_Object_Client,
@@ -125,6 +126,8 @@ internal Pipewire_Handle  pipewire_handle_from_object(Pipewire_Object *object);
 internal Pipewire_Object *pipewire_object_from_handle(Pipewire_Handle handle);
 
 internal Pipewire_Object *pipewire_object_from_id(U32 id);
+
+internal Void pipewire_link(Pipewire_Handle output, Pipewire_Handle input);
 
 internal Void pipewire_init(Void);
 internal Void pipewire_tick(Void);
