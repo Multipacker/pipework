@@ -709,7 +709,7 @@ internal U32 f32_solve_cubic(F32 a, F32 b, F32 c, F32 d, F32 *result_xs) {
             F32 uuu = -halfq + y;
             F32 vvv = -halfq - y;
             F32 www = f32_abs(uuu) > f32_abs(vvv) ? uuu : vvv;
-            F32 w = (www < 0.0f) ? -f32_cbrt(-www) : f32_cbrt(www);
+            F32 w   = f32_cbrt(www);
             result_xs[n++] = w - p / (3.0f * w) - bover3a;
         } else if (yy < -F32_EPSILON) {
             // sqrt is negative: three real solutions
@@ -737,7 +737,7 @@ internal U32 f32_solve_cubic(F32 a, F32 b, F32 c, F32 d, F32 *result_xs) {
         } else {
             // sqrt is zero: two real solutions
             F32 www = -halfq;
-            F32 w = (www < 0) ? -f32_cbrt(-www) : f32_cbrt(www);
+            F32 w   = f32_cbrt(www);
             // first solution
             result_xs[n++] = w + w - bover3a;
             // second solution, rotate +120 degrees
