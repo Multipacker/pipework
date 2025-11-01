@@ -351,7 +351,7 @@ internal S8 s8_clamp(S8 x, S8 min, S8 max) {
 }
 
 internal S8 s8_abs(S8 x) {
-    S8 result = (x < 0 ? -x : x);
+    S8 result = (S8) (x < 0 ? -x : x);
     return result;
 }
 
@@ -373,7 +373,7 @@ internal S16 s16_clamp(S16 x, S16 min, S16 max) {
 }
 
 internal S16 s16_abs(S16 x) {
-    S16 result = (x < 0 ? -x : x);
+    S16 result = (S16) (x < 0 ? -x : x);
     return result;
 }
 
