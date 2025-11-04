@@ -31,7 +31,6 @@ internal S32 os_run(Str8List arguments) {
         state->frame_arenas[i] = arena_create();
     }
 
-    state->running = true;
     state->font_size = 11.0f;
     state->frames_to_render = 4;
 
@@ -92,23 +91,19 @@ internal S32 os_run(Str8List arguments) {
     gfx_init();
     render_init();
 
-    state->window = gfx_window_create(str8_literal("Pipewire-test"), 1280, 720);
-    state->render = render_create(state->window);
-    state->ui = ui_create();
+    create_window(str8_literal("Pipewire-test"), 1280, 720);
+    create_window(str8_literal("Pipewire-test"), 1280, 720);
 
     font_cache_create();
     gfx_set_update_function(update);
 
     pipewire_init();
 
-    while (state->running) {
+    while (state->first_window) {
         update();
     }
 
     pipewire_deinit();
-
-    render_destroy(state->window, state->render);
-    gfx_window_close(state->window);
 
     return 0;
 }

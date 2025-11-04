@@ -114,6 +114,27 @@ struct GraphNode {
     U64 last_frame_used;
 };
 
+typedef struct Handle Handle;
+struct Handle {
+    U64 u64[2];
+};
+
+typedef struct Window Window;
+struct Window {
+    Window *next;
+    Window *previous;
+
+    U64 generation;
+
+    Arena *arena;
+
+    Gfx_Window     window;
+    Render_Window  render;
+    UI_Context    *ui;
+};
+
+global Window nil_window = { 0 };
+
 typedef struct State State;
 struct State {
     Arena *arena;
@@ -121,17 +142,16 @@ struct State {
     Arena *frame_arenas[2];
     U64 frame_index;
 
-    B32 running;
     U32 frames_to_render;
+
+    Window *first_window;
+    Window *last_window;
+    Window *window_freelist;
 
     Theme theme;
     UI_Palette palettes[ThemePalette_COUNT];
 
     F32 font_size;
-
-    Gfx_Window     window;
-    Render_Window  render;
-    UI_Context    *ui;
 
     V2F32      graph_offset;
     GraphNode *first_node;
@@ -158,5 +178,14 @@ internal Arena *frame_arena(Void);
 internal Str8     kind_from_object(Pipewire_Object *object);
 internal Str8     name_from_object(Pipewire_Object *object);
 internal UI_Input object_button(Pipewire_Object *object);
+
+// NOTE(simon): Windows.
+
+internal Handle  handle_from_window(Window *window);
+internal Window *window_from_handle(Handle handle);
+internal Window *window_from_gfx_handle(Gfx_Window handle);
+internal B32     is_nil_window(Window *window);
+internal Handle  create_window(Str8 title, U32 width, U32 height);
+internal Void    close_window(Handle handle);
 
 #endif //CORE_H
