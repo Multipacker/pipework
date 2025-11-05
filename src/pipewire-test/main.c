@@ -91,7 +91,20 @@ internal S32 os_run(Str8List arguments) {
     gfx_init();
     render_init();
 
-    create_window(str8_literal("Pipewire-test"), 1280, 720);
+    Window *window = create_window(str8_literal("Pipewire-test"), 1280, 720);
+    Panel *left  = create_panel();
+    Panel *right = create_panel();
+    left->percentage_of_parent  = 0.5f;
+    right->percentage_of_parent = 0.5f;
+    insert_panel(window->root_panel, &nil_panel, left);
+    insert_panel(window->root_panel, left, right);
+
+    Tab *tab0 = create_tab(str8_literal("Tab 0"));
+    Tab *tab1 = create_tab(str8_literal("Tab 1"));
+    Tab *tab2 = create_tab(str8_literal("Tab 2"));
+    insert_tab(left,  &nil_tab, tab0);
+    insert_tab(left,  tab0, tab1);
+    insert_tab(right, &nil_tab, tab2);
 
     font_cache_create();
     gfx_set_update_function(update);

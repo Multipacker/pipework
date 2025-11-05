@@ -25,6 +25,238 @@ internal Arena *frame_arena(Void) {
 
 
 
+// NOTE(simon): Tabs.
+
+internal Handle handle_from_tab(Tab *tab) {
+    Handle handle = { 0 };
+
+    if (tab) {
+        handle.u64[0] = tab->generation;
+        handle.u64[1] = integer_from_pointer(tab);
+    }
+
+    return handle;
+}
+
+internal Tab *tab_from_handle(Handle handle) {
+    Tab *tab = (Tab *) pointer_from_integer(handle.u64[1]);
+
+    if (!tab || tab->generation != handle.u64[0]) {
+        tab = &nil_tab;
+    }
+
+    return tab;
+}
+
+internal B32 is_nil_tab(Tab *tab) {
+    B32 result = !tab || tab == &nil_tab;
+    return result;
+}
+
+internal Tab *create_tab(Str8 name) {
+    Tab *tab = state->tab_freelist;
+    if (tab) {
+        sll_stack_pop(state->tab_freelist);
+        U64 generation = tab->generation;
+        memory_zero_struct(tab);
+        tab->generation = generation;
+    } else {
+        tab = arena_push_struct(state->arena, Tab);
+    }
+
+    tab->next     = &nil_tab;
+    tab->previous = &nil_tab;
+
+    tab->arena = arena_create();
+    tab->name  = str8_copy(tab->arena, name);
+
+    return tab;
+}
+
+internal Void destroy_tab(Tab *tab) {
+    if (!is_nil_tab(tab)) {
+        ++tab->generation;
+        sll_stack_push(state->tab_freelist, tab);
+    }
+}
+
+
+
+
+// NOTE(simon): Panels.
+
+internal Handle handle_from_panel(Panel *panel) {
+    Handle handle = { 0 };
+
+    if (panel) {
+        handle.u64[0] = panel->generation;
+        handle.u64[1] = integer_from_pointer(panel);
+    }
+
+    return handle;
+}
+
+internal Panel *panel_from_handle(Handle handle) {
+    Panel *panel = (Panel *) pointer_from_integer(handle.u64[1]);
+
+    if (!panel || panel->generation != handle.u64[0]) {
+        panel = &nil_panel;
+    }
+
+    return panel;
+}
+
+internal B32 is_nil_panel(Panel *panel) {
+    B32 result = !panel || panel == &nil_panel;
+    return result;
+}
+
+internal Panel *create_panel(Void) {
+    Panel *panel = state->panel_freelist;
+    if (panel) {
+        sll_stack_pop(state->panel_freelist);
+        U64 generation = panel->generation;
+        memory_zero_struct(panel);
+        panel->generation = generation;
+    } else {
+        panel = arena_push_struct(state->arena, Panel);
+    }
+
+    panel->next     = &nil_panel;
+    panel->previous = &nil_panel;
+    panel->first    = &nil_panel;
+    panel->last     = &nil_panel;
+    panel->parent   = &nil_panel;
+
+    panel->first_tab = &nil_tab;
+    panel->last_tab  = &nil_tab;
+
+    return panel;
+}
+
+internal Void destroy_panel(Panel *panel) {
+    if (!is_nil_panel(panel)) {
+        // NOTE(simon): Free all child panels.
+        for (Panel *child = panel->first, *next = &nil_panel; !is_nil_panel(child); child = next) {
+            next = child->next;
+
+            destroy_panel(child);
+        }
+
+        // NOTE(simon): Free all tabs.
+        for (Tab *tab = panel->first_tab, *next = &nil_tab; !is_nil_tab(tab); tab = next) {
+            next = tab->next;
+            destroy_tab(tab);
+        }
+
+        ++panel->generation;
+        sll_stack_push(state->panel_freelist, panel);
+    }
+}
+
+internal Void insert_panel(Panel *parent, Panel *previous, Panel *child) {
+    if (!is_nil_panel(parent) && !is_nil_panel(child)) {
+        dll_insert_next_previous_zero(parent->first, parent->last, previous, child, next, previous, &nil_panel);
+        ++parent->child_count;
+        child->parent = parent;
+    }
+}
+
+internal Void remove_panel(Panel *parent, Panel *child) {
+    if (!is_nil_panel(parent) && !is_nil_panel(child)) {
+        dll_remove_next_previous_zero(parent->first, parent->last, child, next, previous, &nil_panel);
+        --parent->child_count;
+        child->next = child->previous = child->parent = &nil_panel;
+    }
+}
+
+internal Void insert_tab(Panel *panel, Tab *previous_tab, Tab *tab) {
+    dll_insert_next_previous_zero(panel->first_tab, panel->last_tab, previous_tab, tab, next, previous, &nil_tab);
+    panel->active_tab = handle_from_tab(tab);
+    ++panel->child_count;
+}
+
+internal Void remove_tab(Panel *panel, Tab *tab) {
+    if (tab_from_handle(panel->active_tab) == tab) {
+        if (!is_nil_tab(tab->next)) {
+            panel->active_tab = handle_from_tab(tab->next);
+        } else if (!is_nil_tab(tab->previous)) {
+            panel->active_tab = handle_from_tab(tab->previous);
+        } else {
+            panel->active_tab = handle_from_tab(&nil_tab);
+        }
+    }
+
+    dll_remove_next_previous_zero(panel->first_tab, panel->last_tab, tab, next, previous, &nil_tab);
+    --panel->child_count;
+}
+
+internal PanelIterator panel_iterator_depth_first_pre_order(Panel *panel, Panel *root_panel) {
+    PanelIterator iterator = { 0 };
+    iterator.next = &nil_panel;
+
+    if (!is_nil_panel(panel->first)) {
+        iterator.next = panel->first;
+        ++iterator.push_count;
+    } else {
+        for (Panel *parent = panel; parent != root_panel; parent = parent->parent) {
+            if (!is_nil_panel(parent->next)) {
+                iterator.next = parent->next;
+                break;
+            }
+            ++iterator.pop_count;
+        }
+    }
+
+    return iterator;
+}
+
+internal R2F32 rectangle_from_panel_parent_rectangle(Panel *panel, Panel *parent, R2F32 parent_rectangle) {
+    R2F32 rectangle = parent_rectangle;
+
+    V2F32 parent_size = r2f32_size(parent_rectangle);
+
+    for (Panel *child = parent->first; !is_nil_panel(child) && child != panel; child = child->next) {
+        rectangle.min.values[parent->split_axis] += child->percentage_of_parent * parent_size.values[parent->split_axis];
+    }
+    rectangle.max.values[parent->split_axis] = rectangle.min.values[parent->split_axis] + panel->percentage_of_parent * parent_size.values[parent->split_axis];
+
+    return rectangle;
+}
+
+internal R2F32 rectangle_from_panel(Panel *query_panel, R2F32 root_rectangle) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+    typedef struct PanelNode PanelNode;
+    struct PanelNode {
+        PanelNode *next;
+        Panel     *panel;
+    };
+
+    // NOTE(simon): Collect parents.
+    PanelNode *panel_stack = 0;
+    for (Panel *panel = query_panel; !is_nil_panel(panel->parent); panel = panel->parent) {
+        PanelNode *panel_node = arena_push_struct(scratch.arena, PanelNode);
+        panel_node->panel = panel;
+        sll_stack_push(panel_stack, panel_node);
+    }
+
+    R2F32 panel_rectangle = root_rectangle;
+    for (PanelNode *panel_node = panel_stack; panel_node; panel_node = panel_node->next) {
+        Panel *panel  = panel_node->panel;
+        Panel *parent = panel->parent;
+
+        V2F32 panel_size = r2f32_size(panel_rectangle);
+
+        panel_rectangle = rectangle_from_panel_parent_rectangle(panel, parent, panel_rectangle);
+    }
+
+    arena_end_temporary(scratch);
+    return panel_rectangle;
+}
+
+
+
+
 // NOTE(simon): Windows.
 
 internal Handle handle_from_window(Window *window) {
@@ -66,7 +298,7 @@ internal B32 is_nil_window(Window *window) {
     return result;
 }
 
-internal Handle create_window(Str8 title, U32 width, U32 height) {
+internal Window *create_window(Str8 title, U32 width, U32 height) {
     Window *window = state->window_freelist;
     if (window) {
         sll_stack_pop(state->window_freelist);
@@ -84,20 +316,22 @@ internal Handle create_window(Str8 title, U32 width, U32 height) {
     window->render = render_create(window->window);
     window->ui     = ui_create();
 
-    Handle handle = handle_from_window(window);
-    return handle;
+    window->root_panel = create_panel();
+
+    return window;
 }
 
-internal Void close_window(Handle handle) {
-    Window *window = window_from_handle(handle);
-
+internal Void destroy_window(Window *window) {
     if (!is_nil_window(window)) {
         dll_remove(state->first_window, state->last_window, window);
+
+        destroy_panel(window->root_panel);
 
         render_destroy(window->window, window->render);
         gfx_window_close(window->window);
         arena_destroy(window->arena);
 
+        ++window->generation;
         sll_stack_push(state->window_freelist, window);
     }
 }
@@ -233,7 +467,8 @@ internal UI_Input object_button(Pipewire_Object *object) {
     return input;
 }
 
-internal Void build_view(V2U32 client_size, R2F32 client_rectangle) {
+internal Void build_view(R2F32 client_rectangle) {
+    V2F32 client_size = r2f32_size(client_rectangle);
     // NOTE(simon): Collect pipewire objects.
     S64 object_count = { 0 };
     Pipewire_Object **objects = 0;
@@ -270,7 +505,7 @@ internal Void build_view(V2U32 client_size, R2F32 client_rectangle) {
         }
 
         UI_Key panel_key    = ui_key_from_string(ui_active_seed_key(), str8_literal("object_panel"));
-        V2F32  panel_size   = v2f32(40.0f * (F32) ui_font_size_top(), (F32) client_size.height - 2.0f * row_height);
+        V2F32  panel_size   = v2f32(40.0f * (F32) ui_font_size_top(), client_size.height - 2.0f * row_height);
         F32    panel_offset = ui_animate(panel_key, !pipewire_object_is_nil(selected_object) * panel_size.width, .initial = 0);
 
         ui_width_next(ui_size_pixels(panel_size.width, 1.0f));
@@ -473,7 +708,7 @@ internal Void build_view(V2U32 client_size, R2F32 client_rectangle) {
     ui_height(ui_size_fill())
     ui_row() {
         // NOTE(simon): Draw list of all objects.
-        V2F32 list_size = v2f32(25.0f * (F32) ui_font_size_top(), (F32) client_size.height);
+        V2F32 list_size = v2f32(25.0f * (F32) ui_font_size_top(), client_size.height);
         local UI_ScrollPosition scroll_position = { 0 };
         R1S64 visible_range = { 0 };
         ui_palette(palette_from_theme(ThemePalette_Button))
@@ -487,8 +722,8 @@ internal Void build_view(V2U32 client_size, R2F32 client_rectangle) {
         }
 
         // NOTE(simon): Build graph.
-        ui_width(ui_size_pixels((F32) client_size.width - list_size.width, 1.0f));
-        ui_height(ui_size_pixels((F32) client_size.height, 1.0f));
+        ui_width(ui_size_pixels(client_size.width - list_size.width, 1.0f));
+        ui_height(ui_size_pixels(client_size.height, 1.0f));
         UI_Box *node_graph_box = ui_create_box_from_string(UI_BoxFlag_Clip | UI_BoxFlag_Clickable | UI_BoxFlag_Scrollable, str8_literal("###node_graph"));
         ui_parent(node_graph_box) {
             V2F32 no_ports_offset     = v2f32(0.0f * 20.0f * (F32) ui_font_size_top(), 0.0f);
@@ -746,7 +981,7 @@ internal Void update(Void) {
         B32 consume = false;
 
         if (event->kind == Gfx_EventKind_Quit) {
-            close_window(handle);
+            destroy_window(window);
         } else if (event->kind == Gfx_EventKind_KeyPress || event->kind == Gfx_EventKind_KeyRelease || event->kind == Gfx_EventKind_Text || event->kind == Gfx_EventKind_Scroll) {
             consume = true;
             UI_Event *ui_event = arena_push_struct(frame_arena(), UI_Event);
@@ -842,7 +1077,166 @@ internal Void update(Void) {
         ui_font_push(font_cache_font_from_static_data(&default_font));
         ui_font_size_push((U32) (state->font_size * gfx_dpi_from_window(window->window) / 72.0f));
 
-        build_view(client_size, client_rectangle);
+        R2F32 top_bar_rectangle = { 0 };
+        F32 border_width = 0.0f;
+        R2F32 content_rectangle = r2f32_pad(r2f32(client_rectangle.min.x, top_bar_rectangle.max.y, client_rectangle.max.x, client_rectangle.max.y), -border_width);
+        V2F32 content_size      = r2f32_size(content_rectangle);
+
+        F32 panel_pad = 2.0f;
+
+        // NOTE(simon): Build non-leaf panel UI.
+        prof_zone_begin(prof_bulid_non_leaf_ui, "non-leaf ui");
+        for (Panel *panel = window->root_panel; !is_nil_panel(panel); panel = panel_iterator_depth_first_pre_order(panel, window->root_panel).next) {
+            if (is_nil_panel(panel->first)) {
+                continue;
+            }
+
+            R2F32 panel_rectangle      = rectangle_from_panel(panel, content_rectangle);
+            V2F32 panel_rectangle_size = r2f32_size(panel_rectangle);
+            V2F32 panel_center         = r2f32_center(panel_rectangle);
+
+            for (Panel *child = panel->first; !is_nil_panel(child->next); child = child->next) {
+                R2F32 child_rectangle = rectangle_from_panel(child, content_rectangle);
+                R2F32 boundary_rectangle = child_rectangle;
+                boundary_rectangle.min.values[panel->split_axis] = boundary_rectangle.max.values[panel->split_axis];
+                boundary_rectangle.min.values[panel->split_axis] -= panel_pad;
+                boundary_rectangle.max.values[panel->split_axis] += panel_pad;
+
+                ui_fixed_position_next(boundary_rectangle.min);
+                ui_width_next(ui_size_pixels(r2f32_size(boundary_rectangle).width, 1.0f));
+                ui_height_next(ui_size_pixels(r2f32_size(boundary_rectangle).height, 1.0f));
+                ui_hover_cursor_next(panel->split_axis == Axis2_X ? Gfx_Cursor_SizeWE : Gfx_Cursor_SizeNS);
+                UI_Box *boundary_box = ui_create_box_from_string_format(UI_BoxFlag_Clickable, "###panel_boundary_%p", child);
+                UI_Input input = ui_input_from_box(boundary_box);
+
+                if (input.flags & UI_InputFlag_LeftDragging) {
+                    Panel *min_child = child;
+                    Panel *max_child = child->next;
+
+                    if (input.flags & UI_InputFlag_LeftPressed) {
+                        V2F32 drag_data = v2f32(min_child->percentage_of_parent, max_child->percentage_of_parent);
+                        ui_set_drag_data(&drag_data);
+                    }
+
+                    V2F32 drag_data = *ui_get_drag_data(V2F32);
+
+                    F32 min_child_percentage_pre_drag = drag_data.x;
+                    F32 max_child_percentage_pre_drag = drag_data.y;
+                    F32 min_child_pixels_pre_drag = min_child_percentage_pre_drag * panel_rectangle_size.values[panel->split_axis];
+                    F32 max_child_pixels_pre_drag = max_child_percentage_pre_drag * panel_rectangle_size.values[panel->split_axis];
+
+                    V2F32 both_drag_delta = ui_drag_delta();
+                    F32 drag_delta = both_drag_delta.values[panel->split_axis];
+                    F32 clamped_drag_delta = drag_delta;
+                    if (drag_delta < 0.0f) {
+                        clamped_drag_delta = -f32_min(-drag_delta, min_child_pixels_pre_drag - 2.0f * panel_pad);
+                    } else {
+                        clamped_drag_delta = f32_min(drag_delta, max_child_pixels_pre_drag - 2.0f * panel_pad);
+                    }
+
+                    F32 min_child_pixels_post_drag = min_child_pixels_pre_drag + clamped_drag_delta;
+                    F32 max_child_pixels_post_drag = max_child_pixels_pre_drag - clamped_drag_delta;
+                    F32 min_child_percentage_post_drag = min_child_pixels_post_drag / panel_rectangle_size.values[panel->split_axis];
+                    F32 max_child_percentage_post_drag = max_child_pixels_post_drag / panel_rectangle_size.values[panel->split_axis];
+                    min_child->percentage_of_parent = min_child_percentage_post_drag;
+                    max_child->percentage_of_parent = max_child_percentage_post_drag;
+                }
+            }
+        }
+        prof_zone_end(prof_bulid_non_leaf_ui);
+
+        // NOTE(simon): Build leaf panel UI.
+        prof_zone_begin(prof_build_leaf_ui, "leaf ui");
+        for (Panel *panel = window->root_panel; !is_nil_panel(panel); panel = panel_iterator_depth_first_pre_order(panel, window->root_panel).next) {
+            if (!is_nil_panel(panel->first)) {
+                continue;
+            }
+
+            R2F32 panel_rectangle = r2f32_pad(rectangle_from_panel(panel, client_rectangle), -panel_pad);
+            Handle next_active_tab = panel->active_tab;
+
+            F32   tab_height              = ui_size_ems(2.0f, 1.0f).value;
+            R2F32 tab_bar_rectangle       = r2f32(panel_rectangle.min.x, panel_rectangle.min.y, panel_rectangle.max.x, panel_rectangle.min.y + tab_height);
+            R2F32 panel_content_rectangle = r2f32(panel_rectangle.min.x, panel_rectangle.min.y + tab_height, panel_rectangle.max.x, panel_rectangle.max.y);
+
+            // NOTE(simon): Build tab bar.
+            ui_fixed_position_next(tab_bar_rectangle.min);
+            ui_width_next(ui_size_pixels(r2f32_size(tab_bar_rectangle).width, 1.0f));
+            ui_height_next(ui_size_pixels(r2f32_size(tab_bar_rectangle).height, 1.0f));
+            ui_layout_axis_next(Axis2_X);
+            UI_Box *tab_bar_box = ui_create_box_from_string_format(
+                UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawBorder | UI_BoxFlag_Clickable | UI_BoxFlag_OverflowX | UI_BoxFlag_Clip,
+                "###tab_bar_box_%p", panel
+            );
+
+            // NOTE(simon): Build tabs.
+            ui_width(ui_size_children_sum(1.0f))
+            ui_height(ui_size_pixels(tab_height, 1.0f))
+            ui_layout_axis(Axis2_X)
+            ui_parent(tab_bar_box)
+            ui_corner_radius_00(ui_size_ems(0.75f, 1.0f).value)
+            ui_corner_radius_01(ui_size_ems(0.75f, 1.0f).value)
+            for (Tab *tab = panel->first_tab; !is_nil_tab(tab); tab = tab->next) {
+                ui_palette_push(palette_from_theme(tab == tab_from_handle(panel->active_tab) ? ThemePalette_Tab : ThemePalette_InactiveTab));
+
+                ui_hover_cursor_next(Gfx_Cursor_Hand);
+                UI_Box *tab_box = ui_create_box_from_string_format(
+                    UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawBorder | UI_BoxFlag_Clickable | UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive | UI_BoxFlag_AnimateX,
+                    "###tab_%p", tab
+                );
+
+                ui_parent(tab_box) {
+                    ui_text_align_next(UI_TextAlign_Left);
+                    ui_width_next(ui_size_text_content(5.0f, 1.0f));
+                    ui_label(tab->name);
+
+                    ui_width_next(ui_size_ems(1.5f, 1.0f));
+                    ui_text_align_next(UI_TextAlign_Center);
+                    ui_hover_cursor_next(Gfx_Cursor_Hand);
+                    ui_font_next(ui_icon_font());
+                    UI_Box *close_box = ui_create_box_from_string_format(
+                        UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawText |
+                        UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive |
+                        UI_BoxFlag_Clickable,
+                        "%.*s##_tab_%p", str8_expand(ui_icon_string_from_kind(UI_IconKind_Close)), tab
+                    );
+
+                    UI_Input close_input = ui_input_from_box(close_box);
+                    if (close_input.flags & UI_InputFlag_LeftClicked) {
+                    }
+                }
+
+                UI_Input input = ui_input_from_box(tab_box);
+                if (input.flags & UI_InputFlag_LeftPressed) {
+                    next_active_tab = handle_from_tab(tab);
+                }
+
+                // NOTE(simon): Spacer between tabs.
+                if (!is_nil_tab(tab->next)) {
+                    ui_spacer_sized(ui_size_ems(0.3f, 1.0f));
+                }
+
+                ui_palette_pop();
+            }
+            ui_input_from_box(tab_bar_box);
+
+            ui_fixed_position_next(panel_content_rectangle.min);
+            ui_width_next(ui_size_pixels(r2f32_size(panel_content_rectangle).width, 1.0f));
+            ui_height_next(ui_size_pixels(r2f32_size(panel_content_rectangle).height, 1.0f));
+            ui_focus_next(UI_Focus_Active);
+            UI_Box *content_box = ui_create_box_from_string_format(
+                UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawBorder | UI_BoxFlag_Clip | UI_BoxFlag_DisableFocusOverlay |
+                UI_BoxFlag_Clickable,
+                "###panel_box_%p", panel
+            );
+
+            ui_parent(content_box) {
+                build_view(panel_content_rectangle);
+            }
+
+            panel->active_tab = next_active_tab;
+        }
+        prof_zone_end(prof_build_leaf_ui);
 
         ui_font_size_pop();
         ui_font_pop();
