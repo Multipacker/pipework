@@ -955,6 +955,7 @@ internal Void build_view(R2F32 client_rectangle) {
 internal Void update(Void) {
     local U32 depth = 0;
 
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
     arena_reset(frame_arena());
 
     state->selected_object = state->selected_object_next;
@@ -964,7 +965,7 @@ internal Void update(Void) {
     Gfx_EventList graphics_events = { 0 };
     if (depth == 0) {
         ++depth;
-        graphics_events = gfx_get_events(frame_arena(), state->frames_to_render == 0);
+        graphics_events = gfx_get_events(scratch.arena, state->frames_to_render == 0);
         --depth;
     }
 
@@ -1488,5 +1489,6 @@ internal Void update(Void) {
 
     ++state->frame_index;
 
+    arena_end_temporary(scratch);
     prof_frame_done();
 }
