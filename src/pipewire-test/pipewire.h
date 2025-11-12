@@ -18,7 +18,7 @@ struct Pipewire_Handle {
     U64 u64[2];
 };
 
-global U64 pipewire_string_chunk_sizes[] = {
+global U64 pipewire_chunk_sizes[] = {
     16,
     64,
     256,
@@ -28,9 +28,9 @@ global U64 pipewire_string_chunk_sizes[] = {
     0xFFFFFFFFFFFFFFFF,
 };
 
-typedef struct Pipewire_StringChunkNode Pipewire_StringChunkNode;
-struct Pipewire_StringChunkNode {
-    Pipewire_StringChunkNode *next;
+typedef struct Pipewire_ChunkNode Pipewire_ChunkNode;
+struct Pipewire_ChunkNode {
+    Pipewire_ChunkNode *next;
     U64 size;
 };
 
@@ -93,7 +93,7 @@ struct Pipewire_State {
     Pipewire_Object *first_object;
     Pipewire_Object *last_object;
     Pipewire_Object *object_freelist;
-    Pipewire_StringChunkNode *string_chunk_freelist[array_count(pipewire_string_chunk_sizes)];
+    Pipewire_ChunkNode *chunk_freelist[array_count(pipewire_chunk_sizes)];
     Pipewire_Property *property_freelist;
 
     struct pw_main_loop *loop;
@@ -118,9 +118,13 @@ internal Pipewire_Property *pipewire_object_property_from_name(Pipewire_Object *
 internal Str8               pipewire_object_property_string_from_name(Pipewire_Object *object, Str8 name);
 internal U32                pipewire_object_property_u32_from_name(Pipewire_Object *object, Str8 name);
 
-internal U64  pipewire_string_chunk_index_from_size(U64 size);
-internal Str8 pipewire_string_allocate(Str8 string);
-internal Void pipewire_string_free(Str8 string);
+internal U64             pipewire_chunk_index_from_size(U64 size);
+internal U8             *pipewire_allocate(U64 size);
+internal Void            pipewire_free(U8 *data, U64 size);
+internal Str8            pipewire_string_allocate(Str8 string);
+internal Void            pipewire_string_free(Str8 string);
+internal struct spa_pod *pipewire_spa_pod_allocate(struct spa_pod *pod);
+internal Void            pipewire_spa_pod_free(struct spa_pod *pod);
 
 internal Pipewire_Handle  pipewire_handle_from_object(Pipewire_Object *object);
 internal Pipewire_Object *pipewire_object_from_handle(Pipewire_Handle handle);

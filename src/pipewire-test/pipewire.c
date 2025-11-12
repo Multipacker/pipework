@@ -118,11 +118,11 @@ internal U32 pipewire_object_property_u32_from_name(Pipewire_Object *object, Str
 
 
 
-internal U64 pipewire_string_chunk_index_from_size(U64 size) {
+internal U64 pipewire_chunk_index_from_size(U64 size) {
     U64 chunk_index = 0;
     if (size) {
-        for (U64 i = 0; i < array_count(pipewire_string_chunk_sizes); ++i) {
-            if (size <= pipewire_string_chunk_sizes[i]) {
+        for (U64 i = 0; i < array_count(pipewire_chunk_sizes); ++i) {
+            if (size <= pipewire_chunk_sizes[i]) {
                 chunk_index = 1 + i;
                 break;
             }
@@ -131,14 +131,14 @@ internal U64 pipewire_string_chunk_index_from_size(U64 size) {
     return chunk_index;
 }
 
-internal Str8 pipewire_string_allocate(Str8 string) {
-    U64 chunk_index = pipewire_string_chunk_index_from_size(string.size);
-    Pipewire_StringChunkNode *chunk = 0;
-    if (chunk_index == array_count(pipewire_string_chunk_sizes)) {
-        Pipewire_StringChunkNode *best_chunk_previous = 0;
-        Pipewire_StringChunkNode *best_chunk = 0;
-        for (Pipewire_StringChunkNode *candidate = pipewire_state->string_chunk_freelist[chunk_index - 1], *previous = 0; candidate; previous = candidate, candidate = candidate->next) {
-            if (string.size <= candidate->size && (!best_chunk || candidate->size < best_chunk->size)) {
+internal U8 *pipewire_allocate(U64 size) {
+    U64 chunk_index = pipewire_chunk_index_from_size(size);
+    Pipewire_ChunkNode *chunk = 0;
+    if (chunk_index == array_count(pipewire_chunk_sizes)) {
+        Pipewire_ChunkNode *best_chunk_previous = 0;
+        Pipewire_ChunkNode *best_chunk = 0;
+        for (Pipewire_ChunkNode *candidate = pipewire_state->chunk_freelist[chunk_index - 1], *previous = 0; candidate; previous = candidate, candidate = candidate->next) {
+            if (size <= candidate->size && (!best_chunk || candidate->size < best_chunk->size)) {
                 best_chunk_previous = previous;
                 best_chunk = candidate;
             }
@@ -149,37 +149,65 @@ internal Str8 pipewire_string_allocate(Str8 string) {
             if (best_chunk_previous) {
                 best_chunk_previous->next = best_chunk->next;
             } else {
-                pipewire_state->string_chunk_freelist[chunk_index - 1] = best_chunk->next;
+                pipewire_state->chunk_freelist[chunk_index - 1] = best_chunk->next;
             }
         } else {
-            U64 size = u64_ceil_to_power_of_2(string.size);
-            chunk = (Pipewire_StringChunkNode *) arena_push_array_no_zero(pipewire_state->arena, U8, size);
+            U64 ceiled_size = u64_ceil_to_power_of_2(size);
+            chunk = (Pipewire_ChunkNode *) arena_push_array_no_zero(pipewire_state->arena, U8, ceiled_size);
         }
     } else if (chunk_index != 0) {
-        chunk = pipewire_state->string_chunk_freelist[chunk_index - 1];
+        chunk = pipewire_state->chunk_freelist[chunk_index - 1];
         if (chunk) {
-            sll_stack_pop(pipewire_state->string_chunk_freelist[chunk_index - 1]);
+            sll_stack_pop(pipewire_state->chunk_freelist[chunk_index - 1]);
         } else {
-            chunk = (Pipewire_StringChunkNode *) arena_push_array_no_zero(pipewire_state->arena, U8, pipewire_string_chunk_sizes[chunk_index - 1]);
+            chunk = (Pipewire_ChunkNode *) arena_push_array_no_zero(pipewire_state->arena, U8, pipewire_chunk_sizes[chunk_index - 1]);
         }
     }
 
+    U8 *result = (U8 *) chunk;
+    return result;
+}
+
+internal Void pipewire_free(U8 *data, U64 size) {
+    U64 chunk_index = pipewire_chunk_index_from_size(size);
+    if (chunk_index) {
+        Pipewire_ChunkNode *chunk = (Pipewire_ChunkNode *) data;
+        chunk->size = u64_ceil_to_power_of_2(size);
+        sll_stack_push(pipewire_state->chunk_freelist[chunk_index - 1], chunk);
+    }
+}
+
+internal Str8 pipewire_string_allocate(Str8 string) {
+    U8 *buffer = pipewire_allocate(string.size);
+
     Str8 result = { 0 };
-    if (chunk) {
-        result.data = (U8 *) chunk;
+    if (buffer) {
+        result.data = buffer;
         result.size = string.size;
         memory_copy(result.data, string.data, string.size);
     }
+
     return result;
 }
 
 internal Void pipewire_string_free(Str8 string) {
-    U64 chunk_index = pipewire_string_chunk_index_from_size(string.size);
-    if (chunk_index) {
-        Pipewire_StringChunkNode *chunk = (Pipewire_StringChunkNode *) string.data;
-        chunk->size = u64_ceil_to_power_of_2(string.size);
-        sll_stack_push(pipewire_state->string_chunk_freelist[chunk_index - 1], chunk);
+    pipewire_free(string.data, string.size);
+}
+
+internal struct spa_pod *pipewire_spa_pod_allocate(struct spa_pod *pod) {
+    U64 size = SPA_POD_SIZE(pod);
+    U8 *buffer = pipewire_allocate(size);
+
+    struct spa_pod *result = 0;
+    if (buffer) {
+        result = (struct spa_pod *) buffer;
+        memory_copy(result, pod, size);
     }
+    return result;
+}
+
+internal Void pipewire_spa_pod_free(struct spa_pod *pod) {
+    pipewire_free((U8 *) pod, SPA_POD_SIZE(pod));
 }
 
 
