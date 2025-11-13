@@ -809,80 +809,210 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
     Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
 
     // NOTE(simon): Collect all parameters.
-    Str8 *rows = 0;
-    S64   row_count = 0;
+    typedef struct Row Row;
+    struct Row {
+        Row *next;
+        Str8 label;
+        Str8 value;
+        Str8 type;
+        U64  depth;
+    };
+
+    Row *rows = 0;
+    S64  row_count = 0;
     {
-        Str8List lines = { 0 };
+        typedef struct Work Work;
+        struct Work {
+            Work *next;
+            Str8 label;
+            struct spa_pod       *pod;
+            struct spa_type_info *parent_type;
+            U64 depth;
+        };
+        Work *first_work = 0;
+        Work *last_work = 0;
         for (Pipewire_Parameter *parameter = selected_object->first_parameter; parameter; parameter = parameter->next) {
-            if (spa_pod_is_object(parameter->param)) {
-                struct spa_pod_object *object = (struct spa_pod_object *) parameter->param;
-                const struct spa_type_info *object_type = spa_debug_type_find(SPA_TYPE_ROOT, object->body.type);
+            Work *work = arena_push_struct(frame_arena(), Work);
+            work->label = str8_cstr((CStr) spa_debug_type_find_short_name(spa_type_param, parameter->id));
+            work->pod = parameter->param;
+            work->parent_type = (struct spa_type_info *) SPA_TYPE_ROOT;
+            sll_queue_push(first_work, last_work, work);
+        }
 
-                str8_list_push(frame_arena(), &lines, str8_cstr((CStr) spa_debug_type_short_name(object_type->name)));
+        Row *first_row = 0;
+        Row *last_row = 0;
+        while (first_work) {
+            Work *work = first_work;
+            sll_queue_pop(first_work, last_work);
 
-                struct spa_pod_prop *prop = 0;
-                SPA_POD_OBJECT_FOREACH(object, prop) {
-                    const struct spa_type_info *member_type = spa_debug_type_find(object_type->values, prop->key);
-                    Str8 key = { 0 };
-                    if (member_type) {
-                        key = str8_cstr((CStr) spa_debug_type_short_name(member_type->name));
-                    } else if (prop->key >= SPA_PROP_START_CUSTOM) {
-                        key = str8_format(frame_arena(), "custom %u", prop->key - SPA_PROP_START_CUSTOM);
-                    } else {
-                        key = str8_format(frame_arena(), "unknown %u", prop->key);
+            // NOTE(simon): Basic types.
+            switch (work->pod->type) {
+                case SPA_TYPE_None: {
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_literal("None");
+                    row->type = str8_literal("None");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Bool: {
+                    struct spa_pod_bool *value = (struct spa_pod_bool *) work->pod;
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = value->value ? str8_literal("True") : str8_literal("False");
+                    row->type = str8_literal("Bool");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Id: {
+                } break;
+                case SPA_TYPE_Int: {
+                    struct spa_pod_int *value = (struct spa_pod_int *) work->pod;
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_format(frame_arena(), "%u", value->value);
+                    row->type = str8_literal("Int");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Long: {
+                    struct spa_pod_long *value = (struct spa_pod_long *) work->pod;
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_format(frame_arena(), "%lu", value->value);
+                    row->type = str8_literal("Long");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Float: {
+                    struct spa_pod_float *value = (struct spa_pod_float *) work->pod;
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_format(frame_arena(), "%f", value->value);
+                    row->type = str8_literal("Float");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Double: {
+                    struct spa_pod_double *value = (struct spa_pod_double *) work->pod;
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_format(frame_arena(), "%f", value->value);
+                    row->type = str8_literal("Double");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_String: {
+                    Str8 value = str8(SPA_POD_BODY(work->pod), work->pod->size);
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = value;
+                    row->type = str8_literal("String");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Bytes: {
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_literal("[ ... ]");
+                    row->type = str8_literal("Bytes");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Rectangle: {
+                    struct spa_pod_rectangle *value = (struct spa_pod_rectangle *) work->pod;
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_format(frame_arena(), "%u x %u", value->value.width, value->value.height);
+                    row->type = str8_literal("Rectangle");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Fraction: {
+                    struct spa_pod_fraction *value = (struct spa_pod_fraction *) work->pod;
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_format(frame_arena(), "%u / %u", value->value.num, value->value.denom);
+                    row->type = str8_literal("Fraction");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Bitmap: {
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_literal("[ ... ]");
+                    row->type = str8_literal("Bitmap");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                } break;
+                case SPA_TYPE_Array: {
+                } break;
+                case SPA_TYPE_Struct: {
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_literal("[ ... ]");
+                    row->type = str8_literal("Struct");
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+
+                    struct spa_pod *child = 0;
+                    SPA_POD_FOREACH(work->pod, work->pod->size, child) {
+                        Work *child_work = arena_push_struct(frame_arena(), Work);
+                        child_work->label = str8_format(frame_arena(), "%p", child);
+                        child_work->pod = child;
+                        child_work->depth = work->depth + 1;
+                        sll_queue_push_front(first_work, last_work, child_work);
                     }
+                } break;
+                case SPA_TYPE_Object: {
+                    struct spa_pod_object *value = (struct spa_pod_object *) work->pod;
+                    struct spa_type_info  *type = (struct spa_type_info *) spa_debug_type_find(work->parent_type, value->body.type);
 
-                    str8_list_push(frame_arena(), &lines, key);
-                    /*switch (prop->value.type) {
-                        case SPA_TYPE_Int: {
-                            S32 value = 0;
-                            spa_pod_get_int(&prop->value, &value);
-                            printf("    value: %d\n", value);
-                        } break;
-                        case SPA_TYPE_Float: {
-                            F32 value = 0;
-                            spa_pod_get_float(&prop->value, &value);
-                            printf("    value: %f\n", value);
-                        } break;
-                        case SPA_TYPE_Bool: {
-                            bool value = 0;
-                            spa_pod_get_bool(&prop->value, &value);
-                            printf("    value: %s\n", value ? "true" : "false");
-                        } break;
-                        case SPA_TYPE_Double: {
-                            F64 value = 0;
-                            spa_pod_get_double(&prop->value, &value);
-                            printf("    value: %f\n", value);
-                        } break;
-                        case SPA_TYPE_Long: {
-                            S64 value = 0;
-                            spa_pod_get_long(&prop->value, &value);
-                            printf("    value: %lu\n", value);
-                        } break;
-                        case SPA_TYPE_String: {
-                            CStr value = "";
-                            spa_pod_get_string(&prop->value, (const char **) &value);
-                            printf("    value: %s\n", value);
-                        } break;
-                        case SPA_TYPE_Id: {
-                            U32 value = 0;
-                            spa_pod_get_id(&prop->value, &value);
-                            Pipewire_Object *object = pipewire_object_from_id(value);
-                            printf("    value: %p\n", (Void *) object);
-                        } break;
-                        case SPA_TYPE_Fraction: {
-                            struct spa_fraction value = { 0 };
-                            spa_pod_get_fraction(&prop->value, &value);
-                            printf("    value: %u / %u\n", value.num, value.denom);
-                        } break;
-                    }*/
-                }
+                    Row *row = arena_push_struct(frame_arena(), Row);
+                    row->label = work->label;
+                    row->value = str8_literal("[ ... ]");
+                    row->type = str8_cstr((CStr) type->name);
+                    row->depth = work->depth;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+
+                    struct spa_pod_prop *prop = 0;
+                    SPA_POD_OBJECT_FOREACH(value, prop) {
+                        struct spa_type_info *child_type = (struct spa_type_info *) spa_debug_type_find(type->values, prop->key);
+                        Work *child_work = arena_push_struct(frame_arena(), Work);
+                        if (child_type) {
+                            child_work->label = str8_cstr((CStr) spa_debug_type_short_name(child_type->name));
+                        } else if (prop->key >= SPA_PROP_START_CUSTOM) {
+                            child_work->label = str8_format(frame_arena(), "Custom %u", prop->key - SPA_PROP_START_CUSTOM);
+                        }
+                        child_work->pod = &prop->value;
+                        child_work->depth = work->depth + 1;
+                        sll_queue_push_front(first_work, last_work, child_work);
+                    }
+                } break;
+                case SPA_TYPE_Sequence: { } break;
+                case SPA_TYPE_Pointer: { } break;
+                case SPA_TYPE_Fd: { } break;
+                case SPA_TYPE_Choice: { } break;
+                case SPA_TYPE_Pod: { } break;
             }
         }
 
-        rows = arena_push_array(frame_arena(), Str8, lines.node_count);
-        for (Str8Node *node = lines.first; node; node = node->next) {
-            rows[row_count++] = node->string;
+        rows = arena_push_array(frame_arena(), Row, (U64) row_count);
+        for (Row *row = first_row, *row_ptr = rows; row; row = row->next) {
+            *row_ptr++ = *row;
         }
     }
 
@@ -901,12 +1031,30 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
             ui_label(name_from_object(selected_object));
         }
 
+        F32 label_split = 0.33f;
+        F32 value_split = 0.33f;
+
         R1S64 visible_range = { 0 };
         ui_palette(palette_from_theme(ThemePalette_Button))
+        ui_font(font_cache_font_from_static_data(&mono_font))
         ui_scroll_region(v2f32(tab_size.x, tab_size.y - row_height), row_height, row_count, &visible_range, 0, &tab_state->selected_object_scroll_position) {
             for (S64 i = visible_range.min; i < visible_range.max; ++i) {
-                ui_width(ui_size_parent_percent(1.0f, 1.0f)) {
-                    ui_label(rows[i]);
+                Row *row = &rows[i];
+                ui_width_next(ui_size_fill());
+                ui_row() {
+                    ui_width_next(ui_size_parent_percent(label_split, 1.0f));
+                    ui_extra_box_flags_next(UI_BoxFlag_Clip);
+                    ui_row() {
+                        ui_spacer_sized(ui_size_ems((F32) row->depth, 1.0f));
+                        ui_width_next(ui_size_text_content(0.0f, 1.0f));
+                        ui_label(row->label);
+                    }
+
+                    ui_width_next(ui_size_parent_percent(value_split, 1.0f));
+                    ui_label(row->value);
+
+                    ui_width_next(ui_size_parent_percent(1.0f - label_split - value_split, 1.0f));
+                    ui_label(row->type);
                 }
             }
         }
