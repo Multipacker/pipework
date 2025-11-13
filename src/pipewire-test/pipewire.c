@@ -136,6 +136,66 @@ internal B32 pipewire_parameter_is_nil(Pipewire_Parameter *parameter) {
 internal Void pipewire_object_update_parameter(Pipewire_Object *object, U32 id, struct spa_pod *param) {
     Pipewire_Parameter *existing_parameter = pipewire_object_parameter_from_id(object, id);
 
+    if (id == SPA_PARAM_Props) {
+        printf("Props: %p\n", (Void *) object);
+        Str8 key = { 0 };
+        struct spa_pod_prop *prop = 0;
+        struct spa_pod_object *obj = (struct spa_pod_object *) param;
+        SPA_POD_OBJECT_FOREACH(obj, prop) {
+            switch (prop->key) {
+                case SPA_PROP_unknown: key = str8_literal("SPA_PROP_unknown"); break;
+                case SPA_PROP_device: key = str8_literal("SPA_PROP_device"); break;
+                case SPA_PROP_deviceName: key = str8_literal("SPA_PROP_deviceName"); break;
+                case SPA_PROP_deviceFd: key = str8_literal("SPA_PROP_deviceFd"); break;
+                case SPA_PROP_card: key = str8_literal("SPA_PROP_card"); break;
+                case SPA_PROP_cardName: key = str8_literal("SPA_PROP_cardName"); break;
+                case SPA_PROP_minLatency: key = str8_literal("SPA_PROP_minLatency"); break;
+                case SPA_PROP_maxLatency: key = str8_literal("SPA_PROP_maxLatency"); break;
+                case SPA_PROP_periods: key = str8_literal("SPA_PROP_periods"); break;
+                case SPA_PROP_periodSize: key = str8_literal("SPA_PROP_periodSize"); break;
+                case SPA_PROP_periodEvent: key = str8_literal("SPA_PROP_periodEvent"); break;
+                case SPA_PROP_live: key = str8_literal("SPA_PROP_live"); break;
+                case SPA_PROP_rate: key = str8_literal("SPA_PROP_rate"); break;
+                case SPA_PROP_quality: key = str8_literal("SPA_PROP_quality"); break;
+                case SPA_PROP_bluetoothAudioCodec: key = str8_literal("SPA_PROP_bluetoothAudioCodec"); break;
+                case SPA_PROP_bluetoothOffloadActive: key = str8_literal("SPA_PROP_bluetoothOffloadActive"); break;
+                case SPA_PROP_waveType: key = str8_literal("SPA_PROP_waveType"); break;
+                case SPA_PROP_frequency: key = str8_literal("SPA_PROP_frequency"); break;
+                case SPA_PROP_volume: key = str8_literal("SPA_PROP_volume"); break;
+                case SPA_PROP_mute: key = str8_literal("SPA_PROP_mute"); break;
+                case SPA_PROP_patternType: key = str8_literal("SPA_PROP_patternType"); break;
+                case SPA_PROP_ditherType: key = str8_literal("SPA_PROP_ditherType"); break;
+                case SPA_PROP_truncate: key = str8_literal("SPA_PROP_truncate"); break;
+                case SPA_PROP_channelVolumes: key = str8_literal("SPA_PROP_channelVolumes"); break;
+                case SPA_PROP_volumeBase: key = str8_literal("SPA_PROP_volumeBase"); break;
+                case SPA_PROP_volumeStep: key = str8_literal("SPA_PROP_volumeStep"); break;
+                case SPA_PROP_channelMap: key = str8_literal("SPA_PROP_channelMap"); break;
+                case SPA_PROP_monitorMute: key = str8_literal("SPA_PROP_monitorMute"); break;
+                case SPA_PROP_monitorVolumes: key = str8_literal("SPA_PROP_monitorVolumes"); break;
+                case SPA_PROP_latencyOffsetNsec: key = str8_literal("SPA_PROP_latencyOffsetNsec"); break;
+                case SPA_PROP_softMute: key = str8_literal("SPA_PROP_softMute"); break;
+                case SPA_PROP_softVolumes: key = str8_literal("SPA_PROP_softVolumes"); break;
+                case SPA_PROP_iec958Codecs: key = str8_literal("SPA_PROP_iec958Codecs"); break;
+                case SPA_PROP_volumeRampSamples: key = str8_literal("SPA_PROP_volumeRampSamples"); break;
+                case SPA_PROP_volumeRampStepSamples: key = str8_literal("SPA_PROP_volumeRampStepSamples"); break;
+                case SPA_PROP_volumeRampTime: key = str8_literal("SPA_PROP_volumeRampTime"); break;
+                case SPA_PROP_volumeRampStepTime: key = str8_literal("SPA_PROP_volumeRampStepTime"); break;
+                case SPA_PROP_volumeRampScale: key = str8_literal("SPA_PROP_volumeRampScale"); break;
+                case SPA_PROP_brightness: key = str8_literal("SPA_PROP_brightness"); break;
+                case SPA_PROP_contrast: key = str8_literal("SPA_PROP_contrast"); break;
+                case SPA_PROP_saturation: key = str8_literal("SPA_PROP_saturation"); break;
+                case SPA_PROP_hue: key = str8_literal("SPA_PROP_hue"); break;
+                case SPA_PROP_gamma: key = str8_literal("SPA_PROP_gamma"); break;
+                case SPA_PROP_exposure: key = str8_literal("SPA_PROP_exposure"); break;
+                case SPA_PROP_gain: key = str8_literal("SPA_PROP_gain"); break;
+                case SPA_PROP_sharpness: key = str8_literal("SPA_PROP_sharpness"); break;
+                case SPA_PROP_params: key = str8_literal("SPA_PROP_params"); break;
+                default: { } break;
+            }
+            printf("\t%.*s\n", str8_expand(key));
+        }
+    }
+
     if (!pipewire_parameter_is_nil(existing_parameter)) {
         pipewire_spa_pod_free(existing_parameter->param);
     } else {
@@ -344,18 +404,10 @@ internal Void pipewire_module_info(Void *data, const struct pw_module_info *info
 
     module->module_info = pw_module_info_update(module->module_info, info);
 
-    printf("module: id:%u\n", info->id);
-    printf("  filename:  %s\n", info->filename);
-    printf("  arguments: %s\n", info->args);
-    printf("  change mask:");
-    if (info->change_mask & PW_MODULE_CHANGE_MASK_PROPS)  printf(" PROPS");
-    printf("\n");
     if (info->change_mask & PW_MODULE_CHANGE_MASK_PROPS) {
-        printf("  props:\n");
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(module, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
-            printf("    %s: \"%s\"\n", item->key, item->value);
         }
     }
 }
@@ -367,17 +419,10 @@ internal Void pipewire_factory_info(Void *data, const struct pw_factory_info *in
 
     factory->factory_info = pw_factory_info_update(factory->factory_info, info);
 
-    printf("factory: id:%u\n", info->id);
-    printf("  type: %s\n", info->type);
-    printf("  change mask:");
-    if (info->change_mask & PW_FACTORY_CHANGE_MASK_PROPS)  printf(" PROPS");
-    printf("\n");
     if (info->change_mask & PW_FACTORY_CHANGE_MASK_PROPS) {
-        printf("  props:\n");
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(factory, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
-            printf("    %s: \"%s\"\n", item->key, item->value);
         }
     }
 }
@@ -389,12 +434,10 @@ internal Void pipewire_client_info(Void *data, const struct pw_client_info *info
 
     client->client_info = pw_client_info_update(client->client_info, info);
 
-    printf("client: id:%u\n", info->id);
     if (info->change_mask & PW_CLIENT_CHANGE_MASK_PROPS) {
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(client, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
-            printf("  %s: \"%s\"\n", item->key, item->value);
         }
     }
 }
@@ -405,43 +448,28 @@ internal Void pipewire_node_info(Void *data, const struct pw_node_info *info) {
     Pipewire_Object *node = (Pipewire_Object *) data;
 
     node->node_info = pw_node_info_update(node->node_info, info);
-    if (info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
-        for (U32 i = 0; i < info->n_params; ++i) {
+    if (node->node_info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
+        for (U32 i = 0; i < node->node_info->n_params; ++i) {
             // NOTE(simon): Only enumerate paramters that have changed.
-            if (info->params[i].user == 0) {
+            if (node->node_info->params[i].user == 0) {
                 continue;
             }
-            info->params[i].user = 0;
+            node->node_info->params[i].user = 0;
 
             // NOTE(simon): No purpose in requesting parameters that we cannot read.
-            if (!(info->params[i].flags & SPA_PARAM_INFO_READ)) {
+            if (!(node->node_info->params[i].flags & SPA_PARAM_INFO_READ)) {
                 continue;
             }
 
             // TODO(simon): Keep track of sequence numbers to know if we have the most up to date information.
-            pw_node_enum_params((struct pw_node *) node->proxy, 0, info->params[i].id, 0, U32_MAX, 0);
+            pw_node_enum_params((struct pw_node *) node->proxy, ++node->node_info->params[i].seq, node->node_info->params[i].id, 0, U32_MAX, 0);
         }
     }
 
-    printf("node: id:%u\n", info->id);
-    printf("  max input ports:  %u\n", info->max_input_ports);
-    printf("  max output ports: %u\n", info->max_output_ports);
-    printf("  change mask:");
-    if (info->change_mask & PW_NODE_CHANGE_MASK_INPUT_PORTS)  printf(" INPUT_PORTS");
-    if (info->change_mask & PW_NODE_CHANGE_MASK_OUTPUT_PORTS) printf(" OUTPUT_PORTS");
-    if (info->change_mask & PW_NODE_CHANGE_MASK_STATE)        printf(" STATE");
-    if (info->change_mask & PW_NODE_CHANGE_MASK_PROPS)        printf(" PROPS");
-    if (info->change_mask & PW_NODE_CHANGE_MASK_PARAMS)       printf(" PARAMS");
-    printf("\n");
-    printf("  n input ports:    %u\n", info->n_input_ports);
-    printf("  n output ports:   %u\n", info->n_output_ports);
-    printf("  state:            %s\n", pw_node_state_as_string(info->state));
     if (info->change_mask & PW_NODE_CHANGE_MASK_PROPS) {
-        printf("  props:\n");
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(node, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
-            printf("    %s: \"%s\"\n", item->key, item->value);
         }
 
         const struct spa_dict_item *device_id_item = spa_dict_lookup_item(info->props, PW_KEY_DEVICE_ID);
@@ -457,7 +485,6 @@ internal Void pipewire_node_info(Void *data, const struct pw_node_info *info) {
                 Pipewire_Object *device = pipewire_object_from_id(device_id);
                 if (!pipewire_object_is_nil(device)) {
                     pipewire_add_child(device, node);
-                    printf("attached node:%u to device:%u\n", node->id, device->id);
                 }
             }
         } else if (client_id_item) {
@@ -466,36 +493,8 @@ internal Void pipewire_node_info(Void *data, const struct pw_node_info *info) {
                 Pipewire_Object *client = pipewire_object_from_id(client_id);
                 if (!pipewire_object_is_nil(client)) {
                     pipewire_add_child(client, node);
-                    printf("attached node:%u to client:%u\n", node->id, client->id);
                 }
             }
-        }
-    }
-    if (info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
-        printf("  params:\n");
-        for (U32 i = 0; i < info->n_params; ++i) {
-            CStr param_id_string = "";
-            switch (info->params[i].id) {
-                case SPA_PARAM_Invalid:        param_id_string = "Invalid";        break;
-                case SPA_PARAM_PropInfo:       param_id_string = "PropInfo";       break;
-                case SPA_PARAM_Props:          param_id_string = "Props";          break;
-                case SPA_PARAM_EnumFormat:     param_id_string = "EnumFormat";     break;
-                case SPA_PARAM_Format:         param_id_string = "Format";         break;
-                case SPA_PARAM_Buffers:        param_id_string = "Buffers";        break;
-                case SPA_PARAM_Meta:           param_id_string = "Meta";           break;
-                case SPA_PARAM_IO:             param_id_string = "IO";             break;
-                case SPA_PARAM_EnumProfile:    param_id_string = "EnumProfile";    break;
-                case SPA_PARAM_Profile:        param_id_string = "Profile";        break;
-                case SPA_PARAM_EnumPortConfig: param_id_string = "EnumPortConfig"; break;
-                case SPA_PARAM_PortConfig:     param_id_string = "PortConfig";     break;
-                case SPA_PARAM_EnumRoute:      param_id_string = "EnumRoute";      break;
-                case SPA_PARAM_Route:          param_id_string = "Route";          break;
-                case SPA_PARAM_Control:        param_id_string = "Control";        break;
-                case SPA_PARAM_Latency:        param_id_string = "Latency";        break;
-                case SPA_PARAM_ProcessLatency: param_id_string = "ProcessLatency"; break;
-                case SPA_PARAM_Tag:            param_id_string = "Tag";            break;
-            }
-            printf("    id: %s\n", param_id_string);
         }
     }
 }
@@ -503,154 +502,30 @@ internal Void pipewire_node_info(Void *data, const struct pw_node_info *info) {
 internal Void pipewire_node_param(Void *data, S32 seq, U32 id, U32 index, U32 next, const struct spa_pod *param) {
     Pipewire_Object *node = (Pipewire_Object *) data;
 
-    pipewire_object_update_parameter(node, id, (struct spa_pod *) param);
-
-    printf("node: id:%u\n", node->id);
-    printf("  param %u:\n", index);
-    CStr param_type_string = "";
+    Str8 parameter_type = { 0 };
     switch (id) {
-        case SPA_PARAM_Invalid:        param_type_string = "Invalid";        break;
-        case SPA_PARAM_PropInfo:       param_type_string = "PropInfo";       break;
-        case SPA_PARAM_Props:          param_type_string = "Props";          break;
-        case SPA_PARAM_EnumFormat:     param_type_string = "EnumFormat";     break;
-        case SPA_PARAM_Format:         param_type_string = "Format";         break;
-        case SPA_PARAM_Buffers:        param_type_string = "Buffers";        break;
-        case SPA_PARAM_Meta:           param_type_string = "Meta";           break;
-        case SPA_PARAM_IO:             param_type_string = "IO";             break;
-        case SPA_PARAM_EnumProfile:    param_type_string = "EnumProfile";    break;
-        case SPA_PARAM_Profile:        param_type_string = "Profile";        break;
-        case SPA_PARAM_EnumPortConfig: param_type_string = "EnumPortConfig"; break;
-        case SPA_PARAM_PortConfig:     param_type_string = "PortConfig";     break;
-        case SPA_PARAM_EnumRoute:      param_type_string = "EnumRoute";      break;
-        case SPA_PARAM_Route:          param_type_string = "Route";          break;
-        case SPA_PARAM_Control:        param_type_string = "Control";        break;
-        case SPA_PARAM_Latency:        param_type_string = "Latency";        break;
-        case SPA_PARAM_ProcessLatency: param_type_string = "ProcessLatency"; break;
-        case SPA_PARAM_Tag:            param_type_string = "Tag";            break;
+        case SPA_PARAM_Invalid:        parameter_type = str8_literal("Invalid");        break;
+        case SPA_PARAM_PropInfo:       parameter_type = str8_literal("PropInfo");       break;
+        case SPA_PARAM_Props:          parameter_type = str8_literal("Props");          break;
+        case SPA_PARAM_EnumFormat:     parameter_type = str8_literal("EnumFormat");     break;
+        case SPA_PARAM_Format:         parameter_type = str8_literal("Format");         break;
+        case SPA_PARAM_Buffers:        parameter_type = str8_literal("Buffers");        break;
+        case SPA_PARAM_Meta:           parameter_type = str8_literal("Meta");           break;
+        case SPA_PARAM_IO:             parameter_type = str8_literal("IO");             break;
+        case SPA_PARAM_EnumProfile:    parameter_type = str8_literal("EnumProfile");    break;
+        case SPA_PARAM_Profile:        parameter_type = str8_literal("Profile");        break;
+        case SPA_PARAM_EnumPortConfig: parameter_type = str8_literal("EnumPortConfig"); break;
+        case SPA_PARAM_PortConfig:     parameter_type = str8_literal("PortConfig");     break;
+        case SPA_PARAM_EnumRoute:      parameter_type = str8_literal("EnumRoute");      break;
+        case SPA_PARAM_Route:          parameter_type = str8_literal("Route");          break;
+        case SPA_PARAM_Control:        parameter_type = str8_literal("Control");        break;
+        case SPA_PARAM_Latency:        parameter_type = str8_literal("Latency");        break;
+        case SPA_PARAM_ProcessLatency: parameter_type = str8_literal("ProcessLatency"); break;
+        case SPA_PARAM_Tag:            parameter_type = str8_literal("Tag");            break;
     }
-    printf("  id: %s\n", param_type_string);
-    if (id == SPA_PARAM_Props) {
-        struct spa_pod_prop *prop = 0;
-        struct spa_pod_object *obj = (struct spa_pod_object *) param;
-        SPA_POD_OBJECT_FOREACH(obj, prop) {
-            switch (prop->key) {
-                case SPA_PROP_unknown: printf("  key: SPA_PROP_unknown\n"); break;
-                case SPA_PROP_device: printf("  key: SPA_PROP_device\n"); break;
-                case SPA_PROP_deviceName: printf("  key: SPA_PROP_deviceName\n"); break;
-                case SPA_PROP_deviceFd: printf("  key: SPA_PROP_deviceFd\n"); break;
-                case SPA_PROP_card: printf("  key: SPA_PROP_card\n"); break;
-                case SPA_PROP_cardName: printf("  key: SPA_PROP_cardName\n"); break;
-                case SPA_PROP_minLatency: printf("  key: SPA_PROP_minLatency\n"); break;
-                case SPA_PROP_maxLatency: printf("  key: SPA_PROP_maxLatency\n"); break;
-                case SPA_PROP_periods: printf("  key: SPA_PROP_periods\n"); break;
-                case SPA_PROP_periodSize: printf("  key: SPA_PROP_periodSize\n"); break;
-                case SPA_PROP_periodEvent: printf("  key: SPA_PROP_periodEvent\n"); break;
-                case SPA_PROP_live: printf("  key: SPA_PROP_live\n"); break;
-                case SPA_PROP_rate: printf("  key: SPA_PROP_rate\n"); break;
-                case SPA_PROP_quality: printf("  key: SPA_PROP_quality\n"); break;
-                case SPA_PROP_bluetoothAudioCodec: printf("  key: SPA_PROP_bluetoothAudioCodec\n"); break;
-                case SPA_PROP_bluetoothOffloadActive: printf("  key: SPA_PROP_bluetoothOffloadActive\n"); break;
-                case SPA_PROP_waveType: printf("  key: SPA_PROP_waveType\n"); break;
-                case SPA_PROP_frequency: printf("  key: SPA_PROP_frequency\n"); break;
-                case SPA_PROP_volume: printf("  key: SPA_PROP_volume\n"); break;
-                case SPA_PROP_mute: printf("  key: SPA_PROP_mute\n"); break;
-                case SPA_PROP_patternType: printf("  key: SPA_PROP_patternType\n"); break;
-                case SPA_PROP_ditherType: printf("  key: SPA_PROP_ditherType\n"); break;
-                case SPA_PROP_truncate: printf("  key: SPA_PROP_truncate\n"); break;
-                case SPA_PROP_channelVolumes: printf("  key: SPA_PROP_channelVolumes\n"); break;
-                case SPA_PROP_volumeBase: printf("  key: SPA_PROP_volumeBase\n"); break;
-                case SPA_PROP_volumeStep: printf("  key: SPA_PROP_volumeStep\n"); break;
-                case SPA_PROP_channelMap: printf("  key: SPA_PROP_channelMap\n"); break;
-                case SPA_PROP_monitorMute: printf("  key: SPA_PROP_monitorMute\n"); break;
-                case SPA_PROP_monitorVolumes: printf("  key: SPA_PROP_monitorVolumes\n"); break;
-                case SPA_PROP_latencyOffsetNsec: printf("  key: SPA_PROP_latencyOffsetNsec\n"); break;
-                case SPA_PROP_softMute: printf("  key: SPA_PROP_softMute\n"); break;
-                case SPA_PROP_softVolumes: printf("  key: SPA_PROP_softVolumes\n"); break;
-                case SPA_PROP_iec958Codecs: printf("  key: SPA_PROP_iec958Codecs\n"); break;
-                case SPA_PROP_volumeRampSamples: printf("  key: SPA_PROP_volumeRampSamples\n"); break;
-                case SPA_PROP_volumeRampStepSamples: printf("  key: SPA_PROP_volumeRampStepSamples\n"); break;
-                case SPA_PROP_volumeRampTime: printf("  key: SPA_PROP_volumeRampTime\n"); break;
-                case SPA_PROP_volumeRampStepTime: printf("  key: SPA_PROP_volumeRampStepTime\n"); break;
-                case SPA_PROP_volumeRampScale: printf("  key: SPA_PROP_volumeRampScale\n"); break;
-                case SPA_PROP_brightness: printf("  key: SPA_PROP_brightness\n"); break;
-                case SPA_PROP_contrast: printf("  key: SPA_PROP_contrast\n"); break;
-                case SPA_PROP_saturation: printf("  key: SPA_PROP_saturation\n"); break;
-                case SPA_PROP_hue: printf("  key: SPA_PROP_hue\n"); break;
-                case SPA_PROP_gamma: printf("  key: SPA_PROP_gamma\n"); break;
-                case SPA_PROP_exposure: printf("  key: SPA_PROP_exposure\n"); break;
-                case SPA_PROP_gain: printf("  key: SPA_PROP_gain\n"); break;
-                case SPA_PROP_sharpness: printf("  key: SPA_PROP_sharpness\n"); break;
-                case SPA_PROP_params: printf("  key: SPA_PROP_params\n"); break;
-                default: {
-                    if (prop->key >= SPA_PROP_START_CUSTOM) {
-                        printf("  key: custom %u\n", prop->key - SPA_PROP_START_CUSTOM);
-                    } else {
-                        printf("  key: unknown %u\n", prop->key);
-                    }
-                } break;
-            }
-            switch (prop->value.type) {
-                case SPA_TYPE_Int: {
-                    S32 value = 0;
-                    spa_pod_get_int(&prop->value, &value);
-                    printf("    value: %d\n", value);
-                } break;
-                case SPA_TYPE_Float: {
-                    F32 value = 0;
-                    spa_pod_get_float(&prop->value, &value);
-                    printf("    value: %f\n", value);
-                } break;
-                case SPA_TYPE_Bool: {
-                    bool value = 0;
-                    spa_pod_get_bool(&prop->value, &value);
-                    printf("    value: %s\n", value ? "true" : "false");
-                } break;
-                case SPA_TYPE_Double: {
-                    F64 value = 0;
-                    spa_pod_get_double(&prop->value, &value);
-                    printf("    value: %f\n", value);
-                } break;
-                case SPA_TYPE_Long: {
-                    S64 value = 0;
-                    spa_pod_get_long(&prop->value, &value);
-                    printf("    value: %lu\n", value);
-                } break;
-                case SPA_TYPE_String: {
-                    CStr value = "";
-                    spa_pod_get_string(&prop->value, (const char **) &value);
-                    printf("    value: %s\n", value);
-                } break;
-                case SPA_TYPE_Id: {
-                    U32 value = 0;
-                    spa_pod_get_id(&prop->value, &value);
-                    Pipewire_Object *object = pipewire_object_from_id(value);
-                    printf("    value: %p\n", (Void *) object);
-                } break;
-                case SPA_TYPE_Fraction: {
-                    struct spa_fraction value = { 0 };
-                    spa_pod_get_fraction(&prop->value, &value);
-                    printf("    value: %u / %u\n", value.num, value.denom);
-                } break;
-            }
-        }
-    }
-    spa_debug_pod(0, 0, param);
-    if (id == SPA_PARAM_Format) {
-        U32 type = 0;
-        U32 subtype = 0;
-        spa_format_parse(param, &type, &subtype);
-        CStr media_type = "";
-        switch (type) {
-            case SPA_MEDIA_TYPE_unknown:     media_type = "Unknown";     break;
-            case SPA_MEDIA_TYPE_audio:       media_type = "Audio";       break;
-            case SPA_MEDIA_TYPE_video:       media_type = "Video";       break;
-            case SPA_MEDIA_TYPE_image:       media_type = "Image";       break;
-            case SPA_MEDIA_TYPE_binary:      media_type = "Binary";      break;
-            case SPA_MEDIA_TYPE_stream:      media_type = "Stream";      break;
-            case SPA_MEDIA_TYPE_application: media_type = "Application"; break;
-        }
-        printf("Media type: %s\n", media_type);
-    }
+    //printf("%p, %u, %.*s\n", data, seq, str8_expand(parameter_type));
+
+    pipewire_object_update_parameter(node, id, (struct spa_pod *) param);
 }
 
 
@@ -677,23 +552,10 @@ internal Void pipewire_port_info(Void *data, const struct pw_port_info *info) {
         }
     }
 
-    const char *direction = "";
-    switch (info->direction) {
-        case PW_DIRECTION_INPUT:  direction = "input";  break;
-        case PW_DIRECTION_OUTPUT: direction = "output"; break;
-    }
-    printf("port: id:%u\n", info->id);
-    printf("  direction:            %s\n", direction);
-    printf("  change mask:");
-    if (info->change_mask & PW_PORT_CHANGE_MASK_PROPS)  printf(" PROPS");
-    if (info->change_mask & PW_PORT_CHANGE_MASK_PARAMS) printf(" PARAMS");
-    printf("\n");
     if (info->change_mask & PW_PORT_CHANGE_MASK_PROPS) {
-        printf("  props:\n");
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(port, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
-            printf("    %s: \"%s\"\n", item->key, item->value);
         }
 
         const struct spa_dict_item *node_id_item = spa_dict_lookup_item(info->props, PW_KEY_NODE_ID);
@@ -708,7 +570,6 @@ internal Void pipewire_port_info(Void *data, const struct pw_port_info *info) {
                 Pipewire_Object *node = pipewire_object_from_id(node_id);
                 if (!pipewire_object_is_nil(node)) {
                     pipewire_add_child(node, port);
-                    printf("attached port:%u to node:%u\n", port->id, node->id);
                 }
             }
         }
@@ -745,16 +606,9 @@ internal Void pipewire_device_info(Void *data, const struct pw_device_info *info
         }
     }
 
-    printf("device: id:%u\n", info->id);
-    printf("  change mask:");
-    if (info->change_mask & PW_DEVICE_CHANGE_MASK_PROPS)  printf(" PROPS");
-    if (info->change_mask & PW_DEVICE_CHANGE_MASK_PARAMS) printf(" PARAMS");
-    printf("\n");
-    printf("  props:\n");
     const struct spa_dict_item *item = 0;
     spa_dict_for_each(item, info->props) {
         pipewire_object_update_property(device, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
-        printf("    %s: \"%s\"\n", item->key, item->value);
     }
 }
 
@@ -771,25 +625,10 @@ internal Void pipewire_link_info(Void *data, const struct pw_link_info *info) {
 
     link->link_info = pw_link_info_update(link->link_info, info);
 
-    printf("link: id:%u\n", info->id);
-    printf("  output node id: %u\n", info->output_node_id);
-    printf("  output port id: %u\n", info->output_port_id);
-    printf("  input node id:  %u\n", info->input_node_id);
-    printf("  input port id:  %u\n", info->input_port_id);
-    printf("  change mask:");
-    if (info->change_mask & PW_LINK_CHANGE_MASK_STATE)  printf(" STATE");
-    if (info->change_mask & PW_LINK_CHANGE_MASK_FORMAT) printf(" FORMAT");
-    if (info->change_mask & PW_LINK_CHANGE_MASK_PROPS)  printf(" PROPS");
-    printf("\n");
-    if (info->change_mask & PW_LINK_CHANGE_MASK_STATE) {
-        printf("  state:          %s\n", pw_link_state_as_string(info->state));
-    }
     if (info->change_mask & PW_LINK_CHANGE_MASK_PROPS) {
-        printf("  props:\n");
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(link, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
-            printf("    %s: \"%s\"\n", item->key, item->value);
         }
     }
 }
@@ -844,7 +683,6 @@ internal Void pipewire_registry_global(Void *data, U32 id, U32 permissions, cons
 internal Void pipewire_registry_global_remove(Void *data, U32 id) {
     Pipewire_Object *object = pipewire_object_from_id(id);
     if (!pipewire_object_is_nil(object)) {
-        printf("remove object id:%u\n", id);
         pipewire_destroy_object(object);
     }
 }

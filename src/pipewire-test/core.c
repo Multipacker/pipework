@@ -809,15 +809,80 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
     Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
 
     // NOTE(simon): Collect all parameters.
-    S64 parameter_count = 0;
-    Pipewire_Parameter **parameters = 0;
+    Str8 *rows = 0;
+    S64   row_count = 0;
     {
+        Str8List lines = { 0 };
         for (Pipewire_Parameter *parameter = selected_object->first_parameter; parameter; parameter = parameter->next) {
-            ++parameter_count;
+            if (spa_pod_is_object(parameter->param)) {
+                struct spa_pod_object *object = (struct spa_pod_object *) parameter->param;
+                const struct spa_type_info *object_type = spa_debug_type_find(SPA_TYPE_ROOT, object->body.type);
+
+                str8_list_push(frame_arena(), &lines, str8_cstr((CStr) spa_debug_type_short_name(object_type->name)));
+
+                struct spa_pod_prop *prop = 0;
+                SPA_POD_OBJECT_FOREACH(object, prop) {
+                    const struct spa_type_info *member_type = spa_debug_type_find(object_type->values, prop->key);
+                    Str8 key = { 0 };
+                    if (member_type) {
+                        key = str8_cstr((CStr) spa_debug_type_short_name(member_type->name));
+                    } else if (prop->key >= SPA_PROP_START_CUSTOM) {
+                        key = str8_format(frame_arena(), "custom %u", prop->key - SPA_PROP_START_CUSTOM);
+                    } else {
+                        key = str8_format(frame_arena(), "unknown %u", prop->key);
+                    }
+
+                    str8_list_push(frame_arena(), &lines, key);
+                    /*switch (prop->value.type) {
+                        case SPA_TYPE_Int: {
+                            S32 value = 0;
+                            spa_pod_get_int(&prop->value, &value);
+                            printf("    value: %d\n", value);
+                        } break;
+                        case SPA_TYPE_Float: {
+                            F32 value = 0;
+                            spa_pod_get_float(&prop->value, &value);
+                            printf("    value: %f\n", value);
+                        } break;
+                        case SPA_TYPE_Bool: {
+                            bool value = 0;
+                            spa_pod_get_bool(&prop->value, &value);
+                            printf("    value: %s\n", value ? "true" : "false");
+                        } break;
+                        case SPA_TYPE_Double: {
+                            F64 value = 0;
+                            spa_pod_get_double(&prop->value, &value);
+                            printf("    value: %f\n", value);
+                        } break;
+                        case SPA_TYPE_Long: {
+                            S64 value = 0;
+                            spa_pod_get_long(&prop->value, &value);
+                            printf("    value: %lu\n", value);
+                        } break;
+                        case SPA_TYPE_String: {
+                            CStr value = "";
+                            spa_pod_get_string(&prop->value, (const char **) &value);
+                            printf("    value: %s\n", value);
+                        } break;
+                        case SPA_TYPE_Id: {
+                            U32 value = 0;
+                            spa_pod_get_id(&prop->value, &value);
+                            Pipewire_Object *object = pipewire_object_from_id(value);
+                            printf("    value: %p\n", (Void *) object);
+                        } break;
+                        case SPA_TYPE_Fraction: {
+                            struct spa_fraction value = { 0 };
+                            spa_pod_get_fraction(&prop->value, &value);
+                            printf("    value: %u / %u\n", value.num, value.denom);
+                        } break;
+                    }*/
+                }
+            }
         }
-        parameters = arena_push_array(frame_arena(), Pipewire_Parameter *, (U64) parameter_count);
-        for (Pipewire_Parameter *parameter = selected_object->first_parameter, **parameter_ptr = parameters; parameter; parameter = parameter->next) {
-            *parameter_ptr++ = parameter;
+
+        rows = arena_push_array(frame_arena(), Str8, lines.node_count);
+        for (Str8Node *node = lines.first; node; node = node->next) {
+            rows[row_count++] = node->string;
         }
     }
 
@@ -838,36 +903,10 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
 
         R1S64 visible_range = { 0 };
         ui_palette(palette_from_theme(ThemePalette_Button))
-        ui_scroll_region(v2f32(tab_size.x, tab_size.y - row_height), row_height, parameter_count, &visible_range, 0, &tab_state->selected_object_scroll_position) {
+        ui_scroll_region(v2f32(tab_size.x, tab_size.y - row_height), row_height, row_count, &visible_range, 0, &tab_state->selected_object_scroll_position) {
             for (S64 i = visible_range.min; i < visible_range.max; ++i) {
-                Pipewire_Parameter *parameter = parameters[i];
-
-                ui_width(ui_size_parent_percent(1.0f, 1.0f))
-                ui_row()
-                ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                    CStr param_type_string = "";
-                    switch (parameter->id) {
-                        case SPA_PARAM_Invalid:        param_type_string = "Invalid";        break;
-                        case SPA_PARAM_PropInfo:       param_type_string = "PropInfo";       break;
-                        case SPA_PARAM_Props:          param_type_string = "Props";          break;
-                        case SPA_PARAM_EnumFormat:     param_type_string = "EnumFormat";     break;
-                        case SPA_PARAM_Format:         param_type_string = "Format";         break;
-                        case SPA_PARAM_Buffers:        param_type_string = "Buffers";        break;
-                        case SPA_PARAM_Meta:           param_type_string = "Meta";           break;
-                        case SPA_PARAM_IO:             param_type_string = "IO";             break;
-                        case SPA_PARAM_EnumProfile:    param_type_string = "EnumProfile";    break;
-                        case SPA_PARAM_Profile:        param_type_string = "Profile";        break;
-                        case SPA_PARAM_EnumPortConfig: param_type_string = "EnumPortConfig"; break;
-                        case SPA_PARAM_PortConfig:     param_type_string = "PortConfig";     break;
-                        case SPA_PARAM_EnumRoute:      param_type_string = "EnumRoute";      break;
-                        case SPA_PARAM_Route:          param_type_string = "Route";          break;
-                        case SPA_PARAM_Control:        param_type_string = "Control";        break;
-                        case SPA_PARAM_Latency:        param_type_string = "Latency";        break;
-                        case SPA_PARAM_ProcessLatency: param_type_string = "ProcessLatency"; break;
-                        case SPA_PARAM_Tag:            param_type_string = "Tag";            break;
-                    }
-                    ui_label_format("%s", param_type_string);
-                    ui_label_format("%p", parameter->param);
+                ui_width(ui_size_parent_percent(1.0f, 1.0f)) {
+                    ui_label(rows[i]);
                 }
             }
         }
@@ -1286,6 +1325,7 @@ internal Void update(Void) {
                     }
                 } break;
                 case CommandKind_MoveTab: {
+                    Window *window             = window_from_handle(top_context()->window);
                     Panel  *panel              = panel_from_handle(top_context()->panel);
                     Tab    *tab                = tab_from_handle(top_context()->tab);
                     Window *destination_window = window_from_handle(top_context()->destination_window);
@@ -1296,6 +1336,10 @@ internal Void update(Void) {
                         remove_tab(panel, tab);
                         insert_tab(destination_panel, previous_tab, tab);
                         destination_window->active_panel = handle_from_panel(destination_panel);
+
+                        if (panel->child_count == 0 && panel != window->root_panel) {
+                            push_command(CommandKind_ClosePanel, .panel = handle_from_panel(panel));
+                        }
                     }
                 } break;
                 case CommandKind_NextTab: {
