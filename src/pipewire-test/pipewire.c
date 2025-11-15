@@ -750,3 +750,71 @@ internal Void pipewire_deinit(Void) {
 
     pw_deinit();
 }
+
+internal U64 pipewire_spa_pod_min_type_size(U32 type) {
+    U64 size = 0;
+    switch (type) {
+        case SPA_TYPE_None: {
+            size = 0;
+        } break;
+        case SPA_TYPE_Bool: {
+            size = sizeof(S32);
+        } break;
+        case SPA_TYPE_Id: {
+            size = sizeof(U32);
+        } break;
+        case SPA_TYPE_Int: {
+            size = sizeof(S32);
+        } break;
+        case SPA_TYPE_Long: {
+            size = sizeof(S64);
+        } break;
+        case SPA_TYPE_Float: {
+            size = sizeof(F32);
+        } break;
+        case SPA_TYPE_Double: {
+            size = sizeof(F64);
+        } break;
+        case SPA_TYPE_String: {
+            size = sizeof(U8);
+        } break;
+        case SPA_TYPE_Bytes: {
+            size = 0;
+        } break;
+        case SPA_TYPE_Rectangle: {
+            size = sizeof(struct spa_rectangle);
+        } break;
+        case SPA_TYPE_Fraction: {
+            size = sizeof(struct spa_fraction);
+        } break;
+        case SPA_TYPE_Bitmap: {
+            size = sizeof(U8);
+        } break;
+        case SPA_TYPE_Array: {
+            size = sizeof(struct spa_pod_array_body);
+        } break;
+        case SPA_TYPE_Struct: {
+            size = 0;
+        } break;
+        case SPA_TYPE_Object: {
+            size = sizeof(struct spa_pod_object_body);
+        } break;
+        case SPA_TYPE_Sequence: {
+            size = sizeof(struct spa_pod_choice_body);
+        } break;
+        case SPA_TYPE_Pointer: {
+            size = sizeof(struct spa_pod_pointer_body);
+        } break;
+        case SPA_TYPE_Fd: {
+            size = sizeof(S64);
+        } break;
+        case SPA_TYPE_Choice: {
+            size = sizeof(struct spa_pod_choice_body);
+        } break;
+        case SPA_TYPE_Pod: {
+            size = 0;
+        } break;
+    }
+
+    return size;
+}

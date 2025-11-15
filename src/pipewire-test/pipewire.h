@@ -164,6 +164,8 @@ internal Void pipewire_init(Void);
 internal Void pipewire_tick(Void);
 internal Void pipewire_deinit(Void);
 
+internal U64 pipewire_spa_pod_min_type_size(U32 type);
+
 
 
 internal Void pipewire_module_info(Void *data, const struct pw_module_info *info);
