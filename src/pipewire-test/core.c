@@ -599,10 +599,17 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
 internal BUILD_TAB_FUNCTION(build_property_tab) {
     typedef struct TabState TabState;
     struct TabState {
-        UI_ScrollPosition selected_object_scroll_position;
+        UI_ScrollPosition scroll_position;
+        F32 column_widths[2];
     };
 
+    B32 is_new_tab = !tab_from_handle(top_context()->tab)->state;
     TabState *tab_state = tab_state_from_type(TabState);
+
+    if (is_new_tab) {
+        tab_state->column_widths[0] = 1.0f / 2.0f;
+        tab_state->column_widths[1] = 1.0f / 2.0f;
+    }
 
     Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
 
@@ -634,157 +641,106 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
             ui_label(name_from_object(selected_object));
         }
 
-        if (selected_object->kind == Pipewire_Object_Module) {
-            ui_width(ui_size_parent_percent(1.0f, 1.0f))
-            ui_height(ui_size_pixels(row_height, 1.0f)) {
-                Str8 name        = pipewire_object_property_string_from_name(selected_object, str8_literal("module.name"));
-                Str8 author      = pipewire_object_property_string_from_name(selected_object, str8_literal("module.author"));
-                Str8 description = pipewire_object_property_string_from_name(selected_object, str8_literal("module.description"));
-                Str8 usage       = pipewire_object_property_string_from_name(selected_object, str8_literal("module.usage"));
-                Str8 version     = pipewire_object_property_string_from_name(selected_object, str8_literal("module.version"));
-
-                ui_label_format("%.*s v%.*s", str8_expand(name), str8_expand(version));
-
-                if (author.size) {
-                    ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                    ui_label(str8_literal("Author"));
-                    ui_label(author);
-                }
-
-                if (description.size) {
-                    ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                    ui_label(str8_literal("Description"));
-                    ui_label(description);
-                }
-
-                if (usage.size) {
-                    ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                    ui_label(str8_literal("Usage"));
-                    ui_font_next(font_cache_font_from_static_data(&mono_font));
-                    ui_label(usage);
-                }
+        ui_width(ui_size_pixels(tab_size.x - (F32) ui_font_size_top(), 1.0f))
+        ui_height(ui_size_pixels(row_height, 1.0f))
+        ui_row() {
+            ui_width_next(ui_size_parent_percent(tab_state->column_widths[0], 1.0f));
+            ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
+            ui_row() {
+                ui_width_next(ui_size_text_content(0.0f, 1.0f));
+                ui_label(str8_literal("Property"));
             }
-        } else if (selected_object->kind == Pipewire_Object_Factory) {
-            ui_width(ui_size_parent_percent(1.0f, 1.0f))
-            ui_height(ui_size_pixels(row_height, 1.0f)) {
-                Str8 name         = pipewire_object_property_string_from_name(selected_object, str8_literal("factory.name"));
-                Str8 type_name    = pipewire_object_property_string_from_name(selected_object, str8_literal("factory.type.name"));
-                Str8 type_version = pipewire_object_property_string_from_name(selected_object, str8_literal("factory.type.version"));
-                Str8 usage        = pipewire_object_property_string_from_name(selected_object, str8_literal("factory.usage"));
-                U32  module_id    = pipewire_object_property_u32_from_name(selected_object, str8_literal("module.id"));
 
-                ui_label(name);
-
-                ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                ui_label(str8_literal("Creates"));
-                ui_label_format("%.*s v%.*s", str8_expand(type_name), str8_expand(type_version));
-
-                Pipewire_Object *module = pipewire_object_from_id(module_id);
-                if (!pipewire_object_is_nil(module)) {
-                    ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                    ui_row()
-                    ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                        ui_label(str8_literal("Module"));
-                        ui_palette_next(palette_from_theme(ThemePalette_Button));
-                        object_button(module);
-                    }
-                }
-
-                if (usage.size) {
-                    ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                    ui_label(str8_literal("Usage"));
-                    ui_font_next(font_cache_font_from_static_data(&mono_font));
-                    ui_label(usage);
-                }
+            ui_width_next(ui_size_parent_percent(tab_state->column_widths[1], 1.0f));
+            ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
+            ui_row() {
+                ui_width_next(ui_size_text_content(0.0f, 1.0f));
+                ui_label(str8_literal("Value"));
             }
-        } else if (selected_object->kind == Pipewire_Object_Link) {
-            ui_width(ui_size_parent_percent(1.0f, 1.0f))
-            ui_height(ui_size_pixels(row_height, 1.0f)) {
-                U32 output_node_id = pipewire_object_property_u32_from_name(selected_object, str8_literal("link.output.node"));
-                U32 output_port_id = pipewire_object_property_u32_from_name(selected_object, str8_literal("link.output.port"));
-                U32 input_node_id  = pipewire_object_property_u32_from_name(selected_object, str8_literal("link.input.node"));
-                U32 input_port_id  = pipewire_object_property_u32_from_name(selected_object, str8_literal("link.input.port"));
-                U32 factory_id     = pipewire_object_property_u32_from_name(selected_object, str8_literal("factory.id"));
-                U32 client_id      = pipewire_object_property_u32_from_name(selected_object, str8_literal("client.id"));
+        }
 
-                Pipewire_Object *output_node = pipewire_object_from_id(output_node_id);
-                Pipewire_Object *output_port = pipewire_object_from_id(output_port_id);
-                Pipewire_Object *input_node  = pipewire_object_from_id(input_node_id);
-                Pipewire_Object *input_port  = pipewire_object_from_id(input_port_id);
-                Pipewire_Object *factory     = pipewire_object_from_id(factory_id);
-                Pipewire_Object *client      = pipewire_object_from_id(client_id);
+        R1S64 visible_range = { 0 };
+        ui_palette(palette_from_theme(ThemePalette_Button))
+        ui_font(font_cache_font_from_static_data(&mono_font))
+        ui_scroll_region(v2f32(tab_size.x, tab_size.y - 2.0f * row_height), row_height, property_count, &visible_range, 0, &tab_state->scroll_position)
+        ui_palette(palette_from_theme(ThemePalette_Base)) {
+            // NOTE(simon): Build column resize handles
+            F32 column_position = 0.0f;
+            F32 container_width = ui_parent_top()->size[Axis2_X].value;
+            ui_fixed_y(0.0f)
+            ui_width(ui_size_pixels(5.0f, 1.0f))
+            ui_height(ui_size_pixels(row_height * (F32) r1s64_size(visible_range), 1.0f))
+            ui_hover_cursor(Gfx_Cursor_SizeWE)
+            for (U32 i = 0; i < array_count(tab_state->column_widths) - 1; ++i) {
+                column_position += tab_state->column_widths[i];
 
-                ui_label(str8_literal("Ownership"));
-                ui_row()
-                ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                    ui_label(str8_literal("Client"));
-                    ui_palette_next(palette_from_theme(ThemePalette_Button));
-                    object_button(client);
-                }
-                ui_row()
-                ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                    ui_label(str8_literal("Factory"));
-                    ui_palette_next(palette_from_theme(ThemePalette_Button));
-                    object_button(factory);
-                }
+                ui_fixed_x_next(column_position * container_width);
+                UI_Box *handle = ui_create_box_from_string_format(UI_BoxFlag_Clickable, "###resize_handle_%u", i);
+                UI_Input input = ui_input_from_box(handle);
 
-                ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                ui_label(str8_literal("Output"));
-                ui_row()
-                ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                    ui_label(str8_literal("Node"));
-                    ui_palette_next(palette_from_theme(ThemePalette_Button));
-                    object_button(output_node);
-                }
-                ui_row()
-                ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                    ui_label(str8_literal("Port"));
-                    ui_palette_next(palette_from_theme(ThemePalette_Button));
-                    object_button(output_port);
-                }
-
-                ui_spacer_sized(ui_size_ems(1.0f, 1.0f));
-                ui_label(str8_literal("Input"));
-                ui_row()
-                ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                    ui_label(str8_literal("Node"));
-                    ui_palette_next(palette_from_theme(ThemePalette_Button));
-                    object_button(input_node);
-                }
-                ui_row()
-                ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                    ui_label(str8_literal("Port"));
-                    ui_palette_next(palette_from_theme(ThemePalette_Button));
-                    object_button(input_port);
-                }
-            }
-        } else {
-            R1S64 visible_range = { 0 };
-            ui_palette(palette_from_theme(ThemePalette_Button))
-            ui_scroll_region(v2f32(tab_size.x, tab_size.y - row_height), row_height, property_count, &visible_range, 0, &tab_state->selected_object_scroll_position) {
-                for (S64 i = visible_range.min; i < visible_range.max; ++i) {
-                    Pipewire_Property *property = properties[i];
-
-                    // NOTE(simon): Use heuristics to determine if the property is a reference to another object.
-                    Pipewire_Object *reference = &pipewire_nil_object;
-                    Str8 last_component = str8_skip(property->name, 1 + str8_last_index_of(property->name, '.'));
-                    if (
-                        str8_equal(last_component, str8_literal("id")) ||
-                        str8_equal(last_component, str8_literal("client")) ||
-                        str8_equal(last_component, str8_literal("device")) ||
-                        str8_equal(last_component, str8_literal("node")) ||
-                        str8_equal(last_component, str8_literal("port"))
-                    ) {
-                        U32 id = pipewire_object_property_u32_from_name(selected_object, property->name);
-                        reference = pipewire_object_from_id(id);
+                if (input.flags & UI_InputFlag_LeftDragging) {
+                    if (input.flags & UI_InputFlag_LeftPressed) {
+                        F32 min_width = tab_state->column_widths[i + 0];
+                        F32 max_width = tab_state->column_widths[i + 1];
+                        V2F32 drag_data = v2f32(min_width, max_width);
+                        ui_set_drag_data(&drag_data);
                     }
 
-                    ui_width(ui_size_parent_percent(1.0f, 1.0f))
-                    ui_row()
-                    ui_width(ui_size_parent_percent(0.5f, 1.0f)) {
-                        ui_extra_box_flags_next(UI_BoxFlag_Clip);
+                    V2F32 drag_data = *ui_get_drag_data(V2F32);
+
+                    F32 min_width_percentage_pre_drag = drag_data.x;
+                    F32 max_width_percentage_pre_drag = drag_data.y;
+                    F32 min_width_pixels_pre_drag = container_width * min_width_percentage_pre_drag;
+                    F32 max_width_pixels_pre_drag = container_width * max_width_percentage_pre_drag;
+
+                    F32 drag_delta = ui_drag_delta().x;
+                    F32 clamped_drag_delta = drag_delta;
+                    if (drag_delta < 0.0f) {
+                        clamped_drag_delta = -f32_min(-drag_delta, min_width_pixels_pre_drag);
+                    } else {
+                        clamped_drag_delta = f32_min(drag_delta, max_width_pixels_pre_drag);
+                    }
+
+                    F32 min_width_pixels_post_drag = min_width_pixels_pre_drag + clamped_drag_delta;
+                    F32 max_width_pixels_post_drag = max_width_pixels_pre_drag - clamped_drag_delta;
+                    F32 min_width_percentage_post_drag = min_width_pixels_post_drag / container_width;
+                    F32 max_width_percentage_post_drag = max_width_pixels_post_drag / container_width;
+                    tab_state->column_widths[i + 0] = min_width_percentage_post_drag;
+                    tab_state->column_widths[i + 1] = max_width_percentage_post_drag;
+                }
+            }
+
+            // NOTE(simon): Build rows.
+            for (S64 i = visible_range.min; i < visible_range.max; ++i) {
+                Pipewire_Property *property = properties[i];
+
+                // NOTE(simon): Use heuristics to determine if the property is a reference to another object.
+                Pipewire_Object *reference = &pipewire_nil_object;
+                Str8 last_component = str8_skip(property->name, 1 + str8_last_index_of(property->name, '.'));
+                if (
+                    str8_equal(last_component, str8_literal("id")) ||
+                    str8_equal(last_component, str8_literal("client")) ||
+                    str8_equal(last_component, str8_literal("device")) ||
+                    str8_equal(last_component, str8_literal("node")) ||
+                    str8_equal(last_component, str8_literal("port"))
+                ) {
+                    U32 id = pipewire_object_property_u32_from_name(selected_object, property->name);
+                    reference = pipewire_object_from_id(id);
+                }
+
+                ui_width(ui_size_parent_percent(1.0f, 1.0f))
+                ui_row() {
+                    ui_width_next(ui_size_parent_percent(tab_state->column_widths[0], 1.0f));
+                    ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
+                    ui_row() {
+                        ui_width_next(ui_size_text_content(0.0f, 1.0f));
                         ui_label(property->name);
+                    }
 
+                    ui_width_next(ui_size_parent_percent(tab_state->column_widths[1], 1.0f));
+                    ui_extra_box_flags_next(UI_BoxFlag_DrawBorder);
+                    ui_row() {
+                        ui_width_next(ui_size_fill());
                         // NOTE(simon): Create a button if we are a reference.
                         if (!pipewire_object_is_nil(reference)) {
                             ui_palette_next(palette_from_theme(ThemePalette_Button));
@@ -802,10 +758,18 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
 internal BUILD_TAB_FUNCTION(build_parameter_tab) {
     typedef struct TabState TabState;
     struct TabState {
-        UI_ScrollPosition selected_object_scroll_position;
+        UI_ScrollPosition scroll_position;
+        F32 column_widths[3];
     };
 
+    B32 is_new_tab = !tab_from_handle(top_context()->tab)->state;
     TabState *tab_state = tab_state_from_type(TabState);
+
+    if (is_new_tab) {
+        tab_state->column_widths[0] = 1.0f / 3.0f;
+        tab_state->column_widths[1] = 1.0f / 3.0f;
+        tab_state->column_widths[2] = 1.0f / 3.0f;
+    }
 
     Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
 
@@ -1043,27 +1007,24 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
             ui_label(name_from_object(selected_object));
         }
 
-        F32 label_split = 0.33f;
-        F32 value_split = 0.33f;
-
         ui_width(ui_size_pixels(tab_size.x - (F32) ui_font_size_top(), 1.0f))
         ui_height(ui_size_pixels(row_height, 1.0f))
         ui_row() {
-            ui_width_next(ui_size_parent_percent(label_split, 1.0f));
+            ui_width_next(ui_size_parent_percent(tab_state->column_widths[0], 1.0f));
             ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
             ui_row() {
                 ui_width_next(ui_size_text_content(0.0f, 1.0f));
                 ui_label(str8_literal("Member"));
             }
 
-            ui_width_next(ui_size_parent_percent(value_split, 1.0f));
+            ui_width_next(ui_size_parent_percent(tab_state->column_widths[1], 1.0f));
             ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
             ui_row() {
                 ui_width_next(ui_size_text_content(0.0f, 1.0f));
                 ui_label(str8_literal("Value"));
             }
 
-            ui_width_next(ui_size_parent_percent(1.0f - label_split - value_split, 1.0f));
+            ui_width_next(ui_size_parent_percent(tab_state->column_widths[2], 1.0f));
             ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
             ui_row() {
                 ui_width_next(ui_size_text_content(0.0f, 1.0f));
@@ -1075,13 +1036,60 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
         R1S64 visible_range = { 0 };
         ui_palette(palette_from_theme(ThemePalette_Button))
         ui_font(font_cache_font_from_static_data(&mono_font))
-        ui_scroll_region(v2f32(tab_size.x, tab_size.y - 2.0f * row_height), row_height, row_count, &visible_range, 0, &tab_state->selected_object_scroll_position)
+        ui_scroll_region(v2f32(tab_size.x, tab_size.y - 2.0f * row_height), row_height, row_count, &visible_range, 0, &tab_state->scroll_position)
         ui_palette(palette_from_theme(ThemePalette_Base)) {
+            // NOTE(simon): Build column resize handles
+            F32 column_position = 0.0f;
+            F32 container_width = ui_parent_top()->size[Axis2_X].value;
+            ui_fixed_y(0.0f)
+            ui_width(ui_size_pixels(5.0f, 1.0f))
+            ui_height(ui_size_pixels(row_height * (F32) r1s64_size(visible_range), 1.0f))
+            ui_hover_cursor(Gfx_Cursor_SizeWE)
+            for (U32 i = 0; i < array_count(tab_state->column_widths) - 1; ++i) {
+                column_position += tab_state->column_widths[i];
+
+                ui_fixed_x_next(column_position * container_width);
+                UI_Box *handle = ui_create_box_from_string_format(UI_BoxFlag_Clickable, "###resize_handle_%u", i);
+                UI_Input input = ui_input_from_box(handle);
+
+                if (input.flags & UI_InputFlag_LeftDragging) {
+                    if (input.flags & UI_InputFlag_LeftPressed) {
+                        F32 min_width = tab_state->column_widths[i + 0];
+                        F32 max_width = tab_state->column_widths[i + 1];
+                        V2F32 drag_data = v2f32(min_width, max_width);
+                        ui_set_drag_data(&drag_data);
+                    }
+
+                    V2F32 drag_data = *ui_get_drag_data(V2F32);
+
+                    F32 min_width_percentage_pre_drag = drag_data.x;
+                    F32 max_width_percentage_pre_drag = drag_data.y;
+                    F32 min_width_pixels_pre_drag = container_width * min_width_percentage_pre_drag;
+                    F32 max_width_pixels_pre_drag = container_width * max_width_percentage_pre_drag;
+
+                    F32 drag_delta = ui_drag_delta().x;
+                    F32 clamped_drag_delta = drag_delta;
+                    if (drag_delta < 0.0f) {
+                        clamped_drag_delta = -f32_min(-drag_delta, min_width_pixels_pre_drag);
+                    } else {
+                        clamped_drag_delta = f32_min(drag_delta, max_width_pixels_pre_drag);
+                    }
+
+                    F32 min_width_pixels_post_drag = min_width_pixels_pre_drag + clamped_drag_delta;
+                    F32 max_width_pixels_post_drag = max_width_pixels_pre_drag - clamped_drag_delta;
+                    F32 min_width_percentage_post_drag = min_width_pixels_post_drag / container_width;
+                    F32 max_width_percentage_post_drag = max_width_pixels_post_drag / container_width;
+                    tab_state->column_widths[i + 0] = min_width_percentage_post_drag;
+                    tab_state->column_widths[i + 1] = max_width_percentage_post_drag;
+                }
+            }
+
+            // NOTE(simon): Build rows.
             for (S64 i = visible_range.min; i < visible_range.max; ++i) {
                 Row *row = &rows[i];
                 ui_width_next(ui_size_fill());
                 ui_row() {
-                    ui_width_next(ui_size_parent_percent(label_split, 1.0f));
+                    ui_width_next(ui_size_parent_percent(tab_state->column_widths[0], 1.0f));
                     ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
                     ui_row() {
                         ui_spacer_sized(ui_size_ems((F32) row->depth, 1.0f));
@@ -1089,14 +1097,14 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                         ui_label(row->label);
                     }
 
-                    ui_width_next(ui_size_parent_percent(value_split, 1.0f));
+                    ui_width_next(ui_size_parent_percent(tab_state->column_widths[1], 1.0f));
                     ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
                     ui_row() {
                         ui_width_next(ui_size_text_content(0.0f, 1.0f));
                         ui_label(row->value);
                     }
 
-                    ui_width_next(ui_size_parent_percent(1.0f - label_split - value_split, 1.0f));
+                    ui_width_next(ui_size_parent_percent(tab_state->column_widths[2], 1.0f));
                     ui_extra_box_flags_next(UI_BoxFlag_DrawBorder);
                     ui_row() {
                         ui_width_next(ui_size_text_content(0.0f, 1.0f));
