@@ -1207,32 +1207,50 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
 }
 
 internal V4F32 color_from_port_media_type(Pipewire_Object *object) {
-    V4F32 port_color = v4f32(1.0f, 1.0f, 1.0f, 1.0f);
-
+    // NOTE(simon): Find Format or EnumFormat parameter.
+    struct spa_pod *format_parameter = 0;
     if (object->kind == Pipewire_Object_Port) {
-        struct spa_pod *format_parameter = pipewire_object_parameter_from_id(object, SPA_PARAM_Format)->param;
+        format_parameter = pipewire_object_parameter_from_id(object, SPA_PARAM_Format)->param;
         if (!format_parameter) {
             // NOTE(simon): This assumes that a port cannot support multiple
             // differnet media types, only different subtypes.
             format_parameter = pipewire_object_parameter_from_id(object, SPA_PARAM_EnumFormat)->param;
         }
+    }
 
-        if (format_parameter) {
-            const struct spa_pod_prop *media_type_property = spa_pod_find_prop(format_parameter, 0, SPA_FORMAT_mediaType);
-            U32 media_type = 0;
-            if (media_type_property && spa_pod_get_id(&media_type_property->value, &media_type) >= 0) {
-                switch (media_type) {
-                    case SPA_MEDIA_TYPE_unknown:     port_color = color_from_theme(ThemeColor_PortUnknown);     break;
-                    case SPA_MEDIA_TYPE_audio:       port_color = color_from_theme(ThemeColor_PortAudio);       break;
-                    case SPA_MEDIA_TYPE_video:       port_color = color_from_theme(ThemeColor_PortVideo);       break;
-                    case SPA_MEDIA_TYPE_image:       port_color = color_from_theme(ThemeColor_PortImage);       break;
-                    case SPA_MEDIA_TYPE_binary:      port_color = color_from_theme(ThemeColor_PortBinary);      break;
-                    case SPA_MEDIA_TYPE_stream:      port_color = color_from_theme(ThemeColor_PortStream);      break;
-                    case SPA_MEDIA_TYPE_application: port_color = color_from_theme(ThemeColor_PortApplication); break;
-                }
-            }
+    // NOTE(simon): Find the media type property POD.
+    const struct spa_pod *media_type_pod = 0;
+    if (format_parameter) {
+        const struct spa_pod_prop *media_type_property = spa_pod_find_prop(format_parameter, 0, SPA_FORMAT_mediaType);
+        if (media_type_property) {
+            media_type_pod = &media_type_property->value;
         }
     }
+
+    // NOTE(simon): Extract media type.
+    U32 media_type = SPA_MEDIA_TYPE_unknown;
+    if (media_type_pod) {
+        U32 media_type_count = 0;
+        U32 choice = SPA_CHOICE_None;
+        struct spa_pod *media_types = spa_pod_get_values(media_type_pod, &media_type_count, &choice);
+
+        if (media_types->type == SPA_TYPE_Id && media_type_count >= 1) {
+            media_type = *(U32 *) SPA_POD_BODY(media_types);
+        }
+    }
+
+    // NOTE(simon): Pick color based on media type.
+    V4F32 port_color = color_from_theme(ThemeColor_PortUnknown);
+    switch (media_type) {
+        case SPA_MEDIA_TYPE_unknown:     port_color = color_from_theme(ThemeColor_PortUnknown);     break;
+        case SPA_MEDIA_TYPE_audio:       port_color = color_from_theme(ThemeColor_PortAudio);       break;
+        case SPA_MEDIA_TYPE_video:       port_color = color_from_theme(ThemeColor_PortVideo);       break;
+        case SPA_MEDIA_TYPE_image:       port_color = color_from_theme(ThemeColor_PortImage);       break;
+        case SPA_MEDIA_TYPE_binary:      port_color = color_from_theme(ThemeColor_PortBinary);      break;
+        case SPA_MEDIA_TYPE_stream:      port_color = color_from_theme(ThemeColor_PortStream);      break;
+        case SPA_MEDIA_TYPE_application: port_color = color_from_theme(ThemeColor_PortApplication); break;
+    }
+
     return port_color;
 }
 
