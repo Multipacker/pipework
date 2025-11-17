@@ -1576,12 +1576,16 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
         if (drag_is_active() && state->drag_context_member == ContextMember_Port) {
             draw_list_scope(connections) {
                 Pipewire_Object *port = pipewire_object_from_handle(state->drag_context->port);
+                V2F32 mouse = v2f32_subtract(ui_mouse(), tab_rectangle.min);
 
                 // NOTE(simon): Find port node.
                 PortNode *node = 0;
                 for (PortNode *port_node = first_port; port_node; port_node = port_node->next) {
                     if (port_node->port->id == port->id) {
                         node = port_node;
+                    }
+                    if (v2f32_length(v2f32_subtract(mouse, v2f32_subtract(port_node->position, tab_state->graph_offset))) <= port_radius) {
+                        mouse = v2f32_subtract(port_node->position, tab_state->graph_offset);
                     }
                 }
 
@@ -1590,7 +1594,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                 if (node) {
                     V4F32 link_color = color_from_port_media_type(port);
                     V2F32 output_point = v2f32_subtract(node->position, tab_state->graph_offset);
-                    V2F32 input_point  = v2f32_subtract(ui_mouse(), tab_rectangle.min);
+                    V2F32 input_point  = mouse;
 
                     Str8 direction = pipewire_object_property_string_from_name(port, str8_literal("port.direction"));
                     if (str8_equal(direction, str8_literal("in"))) {
