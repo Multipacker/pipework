@@ -835,7 +835,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
             Row *row = arena_push_struct(frame_arena(), Row);
             row->label = work->label;
             row->depth = work->depth;
-            row->type  = str8_cstr((CStr) spa_debug_type_short_name(work->type_info->name));
+            row->type  = str8_cstr((CStr) spa_debug_type_short_name(spa_debug_type_find(SPA_TYPE_ROOT, work->type)->name));
             row->value = str8_literal("???");
             row->hash  = work->hash;
 
@@ -852,7 +852,18 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                     } break;
                     case SPA_TYPE_Id: {
                         U32 value = *(U32 *) work->body;
-                        row->value = str8_format(frame_arena(), "%u", value);
+
+                        struct spa_type_info *info = 0;
+                        if (work->type_info && work->type_info->values) {
+                            info = (struct spa_type_info *) spa_debug_type_find(work->type_info->values, value);
+                        }
+
+                        if (info) {
+                            Str8 enum_name = str8_cstr((CStr) spa_debug_type_short_name(info->name));
+                            row->value = str8_format(frame_arena(), "%.*s (%u)", str8_expand(enum_name), value);
+                        } else {
+                            row->value = str8_format(frame_arena(), "%u", value);
+                        }
                     } break;
                     case SPA_TYPE_Int: {
                         S32 value = *(S32 *) work->body;
@@ -890,7 +901,6 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                     } break;
                     case SPA_TYPE_Array: {
                         struct spa_pod_array_body *value = (struct spa_pod_array_body *) work->body;
-                        struct spa_type_info *child_type = (struct spa_type_info *) spa_debug_type_find(SPA_TYPE_ROOT, value->child.type);
                         row->value = str8_literal("[ ... ]");
                         row->is_expandable = true;
 
@@ -907,7 +917,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                             child_work->body = child;
                             child_work->type = value->child.type;
                             child_work->size = value->child.size;
-                            child_work->type_info = child_type;
+                            child_work->type_info = work->type_info->values;
                             child_work->hash = hash_combine(work->hash, u64_hash(index));
                             sll_queue_push(first_member_work, last_member_work, child_work);
                             ++index;
@@ -961,7 +971,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                             child_work->body = SPA_POD_CONTENTS(struct spa_pod_prop, prop);
                             child_work->type = prop->value.type;
                             child_work->size = prop->value.size;
-                            child_work->type_info = spa_debug_type_find(SPA_TYPE_ROOT, prop->value.type);
+                            child_work->type_info = child_type ? child_type : spa_debug_type_find(SPA_TYPE_ROOT, prop->value.type);
                             child_work->hash = hash_combine(work->hash, u64_hash(index));
                             sll_queue_push(first_member_work, last_member_work, child_work);
                             ++index;
@@ -978,7 +988,6 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                     } break;
                     case SPA_TYPE_Choice: {
                         struct spa_pod_choice_body *value = (struct spa_pod_choice_body *) work->body;
-                        struct spa_type_info *child_type = (struct spa_type_info *) spa_debug_type_find(SPA_TYPE_ROOT, value->child.type);
                         row->value = str8_literal("[ ... ]");
                         row->is_expandable = true;
 
@@ -1032,7 +1041,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                             }
                             child_work->depth = work->depth + 1;
                             child_work->body = child;
-                            child_work->type_info = child_type;
+                            child_work->type_info = work->type_info;
                             child_work->type = value->child.type;
                             child_work->size = value->child.size;
                             child_work->hash = hash_combine(work->hash, u64_hash(index));
