@@ -1645,6 +1645,318 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     }
 }
 
+internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
+    V2F32 *draw_data = (V2F32 *) data;
+
+    F32 min    = 0.0f;
+    F32 norm   = 1.0f;
+    F32 max    = 2.0f;
+
+    F32 base   = draw_data->x;
+    F32 volume = draw_data->y;
+
+    V2F32 min_pos = box->calculated_rectangle.min;
+    F32 width  = box->calculated_size.width;
+    F32 height = box->calculated_size.height;
+
+    F32 volume_pixels = (width - 40.0f) * (volume - min) / (max - min);
+    F32 green_yellow_border_pixels = (width - 40.0f) * (base - min) / (max - min);
+    F32 yellow_red_border_pixels   = (width - 40.0f) * (norm - min) / (max - min);
+
+    F32 track_width = 3.0f;
+
+    // NOTE(simon): Track
+    draw_rectangle(
+        r2f32(min_pos.x + 20.0f, min_pos.y + height / 2.0f - track_width, min_pos.x + width - 20.0f, min_pos.y + height / 2.0f + track_width),
+        color_from_theme(ThemeColor_DropShadow),
+        track_width,
+        0.0f,
+        1.0f
+    );
+
+    // NOTE(simon): Volume indicator
+    draw_rectangle(
+        r2f32(min_pos.x + 21.0f, min_pos.y + height / 2.0f - track_width + 1.0f, min_pos.x + 20.0f + volume_pixels, min_pos.y + height / 2.0f + track_width - 1.0f),
+        box->palette.cursor,
+        track_width,
+        0.0f,
+        1.0f
+    );
+
+
+    // NOTE(simon): Knob
+    draw_rectangle(
+        r2f32(min_pos.x + volume_pixels, min_pos.y, min_pos.x + volume_pixels + 40.0f, min_pos.y + height),
+        color_from_theme(ThemeColor_ButtonBorder),
+        2.0f,
+        0.0f,
+        1.0f
+    );
+
+    // NOTE(simon): Gradients.
+    Render_Shape *upper = draw_rectangle(
+        r2f32(min_pos.x + volume_pixels, min_pos.y + 2.0f, min_pos.x + volume_pixels + 18.0f, min_pos.y + height - 2.0f),
+        color_from_theme(ThemeColor_DropShadow),
+        4.0f,
+        0.0f,
+        1.0f
+    );
+    upper->colors[Corner_00].a = 0.0f;
+    upper->colors[Corner_10].a = 0.0f;
+    upper->colors[Corner_01].a = 0.5f;
+    upper->colors[Corner_11].a = 0.5f;
+    upper->radies[Corner_00] = 0.0f;
+    upper->radies[Corner_10] = 0.0f;
+
+    Render_Shape *lower = draw_rectangle(
+        r2f32(min_pos.x + volume_pixels + 22.0f, min_pos.y + 2.0f, min_pos.x + volume_pixels + 40.0f, min_pos.y + height - 2.0f),
+        color_from_theme(ThemeColor_Hover),
+        4.0f,
+        0.0f,
+        1.0f
+    );
+    lower->colors[Corner_00].a = 0.5f;
+    lower->colors[Corner_10].a = 0.5f;
+    lower->colors[Corner_01].a = 0.0f;
+    lower->colors[Corner_11].a = 0.0f;
+    lower->radies[Corner_01] = 0.0f;
+    lower->radies[Corner_11] = 0.0f;
+
+    // NOTE(simon): Middle line of knob.
+    draw_rectangle(
+        r2f32(min_pos.x + volume_pixels + 19.0f, min_pos.y + 1.0f, min_pos.x + volume_pixels + 21.0f, min_pos.y + height - 1.0f),
+        box->palette.border,
+        0.0f,
+        0.0f,
+        0.0f
+    );
+}
+
+internal UI_Input volume_slider(F32 base, F32 *value, UI_Key key) {
+    ui_height_push(ui_size_ems(1.5f, 1.0f));
+    F32 min  = 0.0f;
+    F32 norm = 1.0f;
+    F32 max  = 2.0f;
+
+    V2F32 *draw_data = arena_push_struct(ui_frame_arena(), V2F32);
+    ui_draw_data_next(draw_data);
+    ui_draw_function_next(draw_volume_slider);
+    ui_hover_cursor_next(Gfx_Cursor_SizeWE);
+
+    UI_Box *box = ui_create_box_from_key(
+        UI_BoxFlag_Clickable,
+        key
+    );
+
+    UI_Input input = ui_input_from_box(box);
+
+    // NOTE(simon): Changing the value by dragging with the mouse.
+    if (input.flags & UI_InputFlag_LeftDragging) {
+        if (input.flags & UI_InputFlag_LeftPressed) {
+            F32 drag_data = *value;
+            ui_set_drag_data(&drag_data);
+        }
+
+        F32 value_pre_drag          = *ui_get_drag_data(F32);
+        F32 percentage_pre_drag     = (value_pre_drag - min) / (max - min);
+        F32 pixels_pre_drag         = percentage_pre_drag * r2f32_size(box->calculated_rectangle).width;
+        F32 drag_delta              = ui_drag_delta().x;
+        F32 pixels_post_drag        = pixels_pre_drag + drag_delta;
+        F32 percentage_post_drag    = pixels_post_drag / r2f32_size(box->calculated_rectangle).width;
+        F32 value_post_drag         = min + (percentage_post_drag) * (max - min);
+        F32 clamped_value_post_drag = f32_min(f32_max(min, value_post_drag), max);
+        *value = clamped_value_post_drag;
+    }
+
+    *draw_data = v2f32(base, *value);
+
+    ui_height_pop();
+    return input;
+}
+
+internal UI_BOX_DRAW_FUNCTION(draw_light) {
+    B32 *light_up = (B32 *) data;
+    V2F32 center = r2f32_center(box->calculated_rectangle);
+    draw_circle(center, 5.0f, color_from_theme(ThemeColor_DropShadow), 0.0f, 1.0f);
+    if (*light_up) {
+        draw_circle(center, 4.0f, color_from_theme(ThemeColor_Focus), 0.0f, 1.0f);
+    }
+}
+
+internal UI_Input light_toggle(B32 is_checked, Str8 label, UI_Key key) {
+    ui_palette_push(palette_from_theme(ThemePalette_Button));
+
+    ui_width_next(ui_size_ems(3.0f, 1.0f));
+    ui_height_next(ui_size_ems(3.0f, 1.0f));
+    ui_hover_cursor_next(Gfx_Cursor_Hand);
+    ui_corner_radius_next(2.0f);
+    ui_layout_axis_next(Axis2_Y);
+    UI_Box *check = ui_create_box_from_key(
+        UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawBorder |
+        UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive |
+        UI_BoxFlag_Clickable | UI_BoxFlag_KeyboardClickable,
+        key
+    );
+
+    ui_parent(check)
+    ui_width(ui_size_fill())
+    ui_height(ui_size_parent_percent(0.5f, 1.0f)) {
+        B32 *light = arena_push_struct(ui_frame_arena(), B32);
+        *light = is_checked;
+        ui_draw_data_next(light);
+        ui_draw_function_next(draw_light);
+        ui_create_box(0);
+
+        ui_text_align_next(UI_TextAlign_Center);
+        ui_label(label);
+    }
+
+    UI_Input check_input = ui_input_from_box(check);
+    ui_palette_pop();
+    return check_input;
+}
+
+internal UI_Input light_toggle_b32(B32 *is_checked, Str8 label, UI_Key key) {
+    UI_Input input = light_toggle(*is_checked, label, key);
+    if (input.flags & UI_InputFlag_Clicked) {
+        *is_checked = !*is_checked;
+    }
+    return input;
+}
+
+internal BUILD_TAB_FUNCTION(build_volume_tab) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+
+    // NOTE(simon): Collect pipewire objects.
+    S64 object_count = { 0 };
+    Pipewire_Object **objects = 0;
+    {
+        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
+            ++object_count;
+        }
+
+        objects = arena_push_array_no_zero(scratch.arena, Pipewire_Object *, (U64) object_count);
+        Pipewire_Object **object_ptr = objects;
+        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
+            *object_ptr = object;
+            ++object_ptr;
+        }
+    }
+
+    ui_width(ui_size_fill())
+    ui_height(ui_size_fill())
+    ui_column()
+    ui_width(ui_size_text_content(0.0f, 1.0f))
+    ui_height(ui_size_text_content(0.0f, 1.0f))
+    for (S64 i = 0; i < object_count; ++i) {
+        Pipewire_Object *object = objects[i];
+        if (object->kind != Pipewire_Object_Node) {
+            continue;
+        }
+
+        Pipewire_Parameter *props = pipewire_object_parameter_from_id(object, SPA_PARAM_Props);
+        if (pipewire_parameter_is_nil(props)) {
+            continue;
+        }
+
+        U32 id              = 0;
+        B32 mute            = false;
+        U32 channel_volumes_size  = 0;
+        U32 channel_volumes_type  = 0;
+        U32 channel_volumes_count = 0;
+        F32 *channel_volumes = 0;
+        F32 volume_base     = 0.0f;
+        F32 volume_step     = 0.0f;
+        U32 channel_map_size  = 0;
+        U32 channel_map_type  = 0;
+        U32 channel_map_count = 0;
+        U32 *channel_map = 0;
+
+        struct spa_pod_parser parser = { 0 };
+        spa_pod_parser_pod(&parser, props->param);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+        spa_pod_parser_get_object(
+            &parser,
+            SPA_TYPE_OBJECT_Props,   &id,
+            SPA_PROP_mute,           SPA_POD_OPT_Bool(&mute),
+            SPA_PROP_channelVolumes, SPA_POD_OPT_Array(&channel_volumes_size, &channel_volumes_type, &channel_volumes_count, &channel_volumes),
+            SPA_PROP_volumeBase,     SPA_POD_OPT_Float(&volume_base),
+            SPA_PROP_volumeStep,     SPA_POD_OPT_Float(&volume_step),
+            SPA_PROP_channelMap,     SPA_POD_OPT_Array(&channel_map_size, &channel_map_type, &channel_map_count, &channel_map)
+            //SPA_PROP_monitorMute,    SPA_POD_OPT_Bool(&monitor_mute),
+            //SPA_PROP_monitorVolumes, ,
+            //SPA_PROP_softMute,       SPA_POD_OPT_Bool(&soft_mute),
+            //SPA_PROP_softVolumes, ,
+            //SPA_PROP_volumeRampSamples, ,
+            //SPA_PROP_volumeRampStepSamples, ,
+            //SPA_PROP_volumeRampTime, ,
+            //SPA_PROP_volumeRampStepTime, ,
+            //SPA_PROP_volumeRampScale, ,
+        );
+#pragma clang diagnostic pop
+
+        Str8 name = name_from_object(object);
+        UI_Input slider_input = { 0 };
+        UI_Input mute_input   = { 0 };
+
+        // NOTE(simon): Determine collective volume for all channels by
+        // computing them max.
+        F32 volume = 0.0f;
+        for (U32 j = 0; j < channel_volumes_count; ++j) {
+            volume = f32_max(volume, channel_volumes[j]);
+        }
+
+        // NOTE(simon): Use the same "linearization" as PulseAudio.
+        F32 linear = f32_cbrt(volume);
+
+        ui_label_format("%.*s, %.0f%%", str8_expand(name), 100.0f * linear);
+        ui_width(ui_size_children_sum(1.0f))
+        ui_height(ui_size_children_sum(1.0f))
+        ui_row() {
+            ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+
+            mute_input = light_toggle_b32(&mute, str8_literal("Mute"), ui_key_from_string_format(ui_active_seed_key(), "%p_mute", object));
+
+            ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+
+            UI_Key channel_key = ui_key_from_string_format(ui_active_seed_key(), "%p_volume", object);
+            ui_width_next(ui_size_ems(20.0f, 1.0f));
+            slider_input = volume_slider(volume_base, &linear, channel_key);
+
+            // NOTE(simon): "Delinearize" as PulseAudio after modification.
+            volume = linear * linear * linear;
+
+            F32 db = 20.0f * f32_ln(volume) / f32_ln(10.0f);
+            ui_width_next(ui_size_text_content(0.0f, 1.0f));
+            ui_label_format("%.2f dB", db);
+        }
+
+        // NOTE(simon): Distribute the new volume across the channels.
+        for (U32 j = 0; j < channel_volumes_count; ++j) {
+            channel_volumes[j] = volume;
+        }
+
+        if (mute_input.flags & UI_InputFlag_LeftClicked || slider_input.flags & UI_InputFlag_LeftDragging) {
+            U8 buffer[4096];
+            struct spa_pod_builder builder = { 0 };
+            spa_pod_builder_init(&builder, buffer, sizeof(buffer));
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+            struct spa_pod *pod = spa_pod_builder_add_object(
+                &builder,
+                SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
+                SPA_PROP_mute, SPA_POD_Bool(mute),
+                SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, channel_volumes_count, channel_volumes)
+            );
+#pragma clang diagnostic pop
+            pw_node_set_param((struct pw_node *) object->proxy, SPA_PARAM_Props, 0, pod);
+        }
+    }
+
+    arena_end_temporary(scratch);
+}
+
 internal Void update(Void) {
     local U32 depth = 0;
 
