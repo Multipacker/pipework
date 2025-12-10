@@ -64,7 +64,10 @@ global Str8 icon_kind_text[] = {
     X(PortImage,                 port_image,                  "Image port")                  \
     X(PortBinary,                port_binary,                 "Binary port")                 \
     X(PortStream,                port_stream,                 "Stream port")                 \
-    X(PortApplication,           port_application,            "Application port")
+    X(PortApplication,           port_application,            "Application port")            \
+    X(VolumeAttenuate,           volume_attenuate,            "Volume attenuate")            \
+    X(VolumeHardwareAmplify,     volume_hardware_amplify,     "Volume hardware amplify")     \
+    X(VolumeSoftwareAmplify,     volume_software_amplify,     "Volume software amplify")
 
 #define X(name, snake_name, display_name) ThemeColor_##name,
 typedef enum {

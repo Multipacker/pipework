@@ -111,6 +111,10 @@ internal S32 os_run(Str8List arguments) {
         theme->port_binary      = grape6;
         theme->port_stream      = red6;
         theme->port_application = pink6;
+
+        theme->volume_attenuate        = green6;
+        theme->volume_hardware_amplify = yellow6;
+        theme->volume_software_amplify = red6;
     }
 
     Log *log = log_create();

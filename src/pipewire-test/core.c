@@ -1645,6 +1645,82 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     }
 }
 
+// NOTE(simon): Based off of PulseAudios guide lines:
+//   https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/WritingVolumeControlUIs/
+internal UI_BOX_DRAW_FUNCTION(draw_display) {
+    V2F32 *draw_data = (V2F32 *) data;
+
+    F32 min    = 0.0f;
+    F32 norm   = 1.0f;
+    F32 max    = 2.0f;
+
+    F32 base   = draw_data->x;
+    F32 volume = draw_data->y;
+
+    V2F32 min_pos = box->calculated_rectangle.min;
+    F32 width  = box->calculated_size.width;
+    F32 height = box->calculated_size.height;
+
+    F32 volume_pixels = width * (volume - min) / (max - min);
+    F32 green_yellow_border_pixels = width * (base - min) / (max - min);
+    F32 yellow_red_border_pixels   = width * (norm - min) / (max - min);
+
+    if (min < base && base < norm) {
+        draw_rectangle(
+            r2f32(min_pos.x, min_pos.y + height / 2.0f - 5.0f, min_pos.x + green_yellow_border_pixels, min_pos.y + height / 2.0f + 5.0f),
+            color_from_theme(ThemeColor_VolumeAttenuate),
+            0.0f,
+            0.0f,
+            0.0f
+        );
+        draw_rectangle(
+            r2f32(min_pos.x + green_yellow_border_pixels, min_pos.y + height / 2.0f - 5.0f, min_pos.x + yellow_red_border_pixels, min_pos.y + height / 2.0f + 5.0f),
+            color_from_theme(ThemeColor_VolumeHardwareAmplify),
+            0.0f,
+            0.0f,
+            0.0f
+        );
+        draw_rectangle(
+            r2f32(min_pos.x + yellow_red_border_pixels, min_pos.y + height / 2.0f - 5.0f, min_pos.x + width, min_pos.y + height / 2.0f + 5.0f),
+            color_from_theme(ThemeColor_VolumeSoftwareAmplify),
+            0.0f,
+            0.0f,
+            0.0f
+        );
+    } else {
+        draw_rectangle(
+            r2f32(min_pos.x, min_pos.y + height / 2.0f - 5.0f, min_pos.x + yellow_red_border_pixels, min_pos.y + height / 2.0f + 5.0f),
+            color_from_theme(ThemeColor_VolumeAttenuate),
+            0.0f,
+            0.0f,
+            0.0f
+        );
+        draw_rectangle(
+            r2f32(min_pos.x + yellow_red_border_pixels, min_pos.y + height / 2.0f - 5.0f, min_pos.x + width, min_pos.y + height / 2.0f + 5.0f),
+            color_from_theme(ThemeColor_VolumeSoftwareAmplify),
+            0.0f,
+            0.0f,
+            0.0f
+        );
+    }
+
+    draw_rectangle(
+        r2f32(min_pos.x + volume_pixels - 20.0f, min_pos.y, min_pos.x + volume_pixels + 20.0f, min_pos.y + height),
+        color_from_theme(ThemeColor_ButtonBackground),
+        height / 2.0f,
+        0.0f,
+        1.0f
+    );
+
+    draw_rectangle(
+        r2f32(min_pos.x + volume_pixels - 1.0f, min_pos.y, min_pos.x + volume_pixels + 1.0f, min_pos.y + height),
+        color_from_theme(ThemeColor_ButtonBorder),
+        0.0f,
+        0.0f,
+        0.0f
+    );
+}
+
 internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
     V2F32 *draw_data = (V2F32 *) data;
 
