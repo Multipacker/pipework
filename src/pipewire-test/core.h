@@ -232,18 +232,56 @@ struct Context {
 #undef X
 };
 
-#define COMMANDS(X)                                                         \
-    X(CloseTab,        "Close tab",         "Close the current tab")        \
-    X(MoveTab,         "Move tab",          "")                             \
-    X(NextTab,         "Next tab",          "Switch to the next tab")       \
-    X(PreviousTab,     "Previous tab",      "Switch to the previous tab")   \
-    X(FocusPanelLeft,  "Focus panel left",  "Focus the panel above")        \
-    X(FocusPanelUp,    "Focus panel up",    "Focus the panel on the left")  \
-    X(FocusPanelRight, "Focus panel right", "Focus the panel on the right") \
-    X(FocusPanelDown,  "Focus panel down",  "Focus the panel below")        \
-    X(FocusPanel,      "Focus panel",       "")                             \
-    X(ClosePanel,      "Close panel",       "Close the current panel")      \
-    X(SplitPanel,      "Split panel",       "")
+#define COMMANDS(X)                                                                                                        \
+    X(CloseTab,             "Close tab",                   "Close the current tab")                                        \
+    X(MoveTab,              "Move tab",                    "")                                                             \
+    X(NextTab,              "Next tab",                    "Switch to the next tab")                                       \
+    X(PreviousTab,          "Previous tab",                "Switch to the previous tab")                                   \
+    X(FocusPanelLeft,       "Focus panel left",            "Focus the panel above")                                        \
+    X(FocusPanelUp,         "Focus panel up",              "Focus the panel on the left")                                  \
+    X(FocusPanelRight,      "Focus panel right",           "Focus the panel on the right")                                 \
+    X(FocusPanelDown,       "Focus panel down",            "Focus the panel below")                                        \
+    X(FocusPanel,           "Focus panel",                 "")                                                             \
+    X(ClosePanel,           "Close panel",                 "Close the current panel")                                      \
+    X(SplitPanel,           "Split panel",                 "")                                                             \
+    X(SelectWordLeft,       "Select word left",            "Extends the selection one word to the left")                   \
+    X(SelectWordUp,         "Select word up",              "Extends the selection one word up")                            \
+    X(SelectWordRight,      "Select word right",           "Extends the selection one word to the right")                  \
+    X(SelectWordDown,       "Select word down",            "Extends the selection one word down")                          \
+    X(SelectCharacterLeft,  "Select character left",       "Extends the selection one character to the left")              \
+    X(SelectCharacterUp,    "Select character up",         "Extends the selection one character up")                       \
+    X(SelectCharacterRight, "Select character right",      "Extends the selection one character to the right")             \
+    X(SelectCharacterDown,  "Select character down",       "Extends the selection one character down")                     \
+    X(MoveWordLeft,         "Move word left",              "Moves one word to the left")                                   \
+    X(MoveWordUp,           "Move word up",                "Moves one word up")                                            \
+    X(MoveWordRight,        "Move word right",             "Moves one word to the right")                                  \
+    X(MoveWordDown,         "Move word down",              "Moves one word down")                                          \
+    X(MoveCharacterLeft,    "Move character left",         "Moves one character to the left")                              \
+    X(MoveCharacterUp,      "Move character up",           "Moves one character up")                                       \
+    X(MoveCharacterRight,   "Move character right",        "Moves one character to the right")                             \
+    X(MoveCharacterDown,    "Move character down",         "Moves one character down")                                     \
+    X(SelectHome,           "Select home",                 "Extends the selection to the start of the line")               \
+    X(SelectEnd,            "Select end",                  "Extends the selection to the end of the line")                 \
+    X(MoveHome,             "Move home",                   "Moves to the start of the line")                               \
+    X(MoveEnd,              "Move end",                    "Moves to the end of the line")                                 \
+    X(SelectPageUp,         "Select page up",              "Extends the selection on page up")                             \
+    X(SelectPageDown,       "Select page down",            "Extends the selection on page down")                           \
+    X(MovePageUp,           "Move page up",                "Moves one page up")                                            \
+    X(MovePageDown,         "Move page down",              "Moves one page down")                                          \
+    X(SelectWholeUp,        "Select whole up",             "Extends the selection to the begining")                        \
+    X(SelectWholeDown,      "Select whole down",           "Extends the selection to the start")                           \
+    X(MoveWholeUp,          "Move whole up",               "Moves to the begining")                                        \
+    X(MoveWholeDown,        "Move whole down",             "Moves to the end")                                             \
+    X(RemoveWord,           "Remove word",                 "Removes one word")                                             \
+    X(DeleteWord,           "Delete word",                 "Deletes one word")                                             \
+    X(RemoveCharacter,      "Remove character",            "Removes one character")                                        \
+    X(DeleteCharacter,      "Delete character",            "Deletes one character")                                        \
+    X(SelectAll,            "Select all",                  "Selects everything")                                           \
+    X(Copy,                 "Copy",                        "Copies the current selection to the clipboard")                \
+    X(Paste,                "Paste",                       "Pastes the current clipboard contents")                        \
+    X(Cut,                  "Cut",                         "Copies the current selection to the clipboard and deletes it") \
+    X(Accept,               "Accept",                      "Accepts the current action")                                   \
+    X(Cancel,               "Cancel",                      "Cancles the current action")
 
 typedef enum {
     CommandKind_Null,

@@ -2065,12 +2065,50 @@ internal Void update(Void) {
     };
 
     Binding bindings[] = {
-        { Gfx_Key_Tab, Gfx_KeyModifier_Control,                         CommandKind_NextTab,         },
-        { Gfx_Key_Tab, Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_PreviousTab,     },
-        { Gfx_Key_H,   Gfx_KeyModifier_Control,                         CommandKind_FocusPanelLeft,  },
-        { Gfx_Key_J,   Gfx_KeyModifier_Control,                         CommandKind_FocusPanelDown,  },
-        { Gfx_Key_K,   Gfx_KeyModifier_Control,                         CommandKind_FocusPanelUp,    },
-        { Gfx_Key_L,   Gfx_KeyModifier_Control,                         CommandKind_FocusPanelRight, },
+        { Gfx_Key_Tab,       Gfx_KeyModifier_Control,                         CommandKind_NextTab,              },
+        { Gfx_Key_Tab,       Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_PreviousTab,          },
+        { Gfx_Key_H,         Gfx_KeyModifier_Control,                         CommandKind_FocusPanelLeft,       },
+        { Gfx_Key_J,         Gfx_KeyModifier_Control,                         CommandKind_FocusPanelDown,       },
+        { Gfx_Key_K,         Gfx_KeyModifier_Control,                         CommandKind_FocusPanelUp,         },
+        { Gfx_Key_L,         Gfx_KeyModifier_Control,                         CommandKind_FocusPanelRight,      },
+        { Gfx_Key_Left,      Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_SelectWordLeft,       },
+        { Gfx_Key_Up,        Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_SelectWordUp,         },
+        { Gfx_Key_Right,     Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_SelectWordRight,      },
+        { Gfx_Key_Down,      Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_SelectWordDown,       },
+        { Gfx_Key_Left,      Gfx_KeyModifier_Shift,                           CommandKind_SelectCharacterLeft,  },
+        { Gfx_Key_Up,        Gfx_KeyModifier_Shift,                           CommandKind_SelectCharacterUp,    },
+        { Gfx_Key_Right,     Gfx_KeyModifier_Shift,                           CommandKind_SelectCharacterRight, },
+        { Gfx_Key_Down,      Gfx_KeyModifier_Shift,                           CommandKind_SelectCharacterDown,  },
+        { Gfx_Key_Left,      Gfx_KeyModifier_Control,                         CommandKind_MoveWordLeft,         },
+        { Gfx_Key_Up,        Gfx_KeyModifier_Control,                         CommandKind_MoveWordUp,           },
+        { Gfx_Key_Right,     Gfx_KeyModifier_Control,                         CommandKind_MoveWordRight,        },
+        { Gfx_Key_Down,      Gfx_KeyModifier_Control,                         CommandKind_MoveWordDown,         },
+        { Gfx_Key_Left,      0,                                               CommandKind_MoveCharacterLeft,    },
+        { Gfx_Key_Up,        0,                                               CommandKind_MoveCharacterUp,      },
+        { Gfx_Key_Right,     0,                                               CommandKind_MoveCharacterRight,   },
+        { Gfx_Key_Down,      0,                                               CommandKind_MoveCharacterDown,    },
+        { Gfx_Key_Home,      Gfx_KeyModifier_Shift,                           CommandKind_SelectHome,           },
+        { Gfx_Key_End,       Gfx_KeyModifier_Shift,                           CommandKind_SelectEnd,            },
+        { Gfx_Key_Home,      0,                                               CommandKind_MoveHome,             },
+        { Gfx_Key_End,       0,                                               CommandKind_MoveEnd,              },
+        { Gfx_Key_PageUp,    Gfx_KeyModifier_Shift,                           CommandKind_SelectPageUp,         },
+        { Gfx_Key_PageDown,  Gfx_KeyModifier_Shift,                           CommandKind_SelectPageDown,       },
+        { Gfx_Key_PageUp,    0,                                               CommandKind_MovePageUp,           },
+        { Gfx_Key_PageDown,  0,                                               CommandKind_MovePageDown,         },
+        { Gfx_Key_Home,      Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_SelectWholeUp,        },
+        { Gfx_Key_End,       Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_SelectWholeDown,      },
+        { Gfx_Key_Home,      Gfx_KeyModifier_Control,                         CommandKind_MoveWholeUp,          },
+        { Gfx_Key_End,       Gfx_KeyModifier_Control,                         CommandKind_MoveWholeDown,        },
+        { Gfx_Key_Backspace, Gfx_KeyModifier_Control,                         CommandKind_RemoveWord,           },
+        { Gfx_Key_Delete,    Gfx_KeyModifier_Control,                         CommandKind_DeleteWord,           },
+        { Gfx_Key_Backspace, 0,                                               CommandKind_RemoveCharacter,      },
+        { Gfx_Key_Delete,    0,                                               CommandKind_DeleteCharacter,      },
+        { Gfx_Key_A,         Gfx_KeyModifier_Control,                         CommandKind_SelectAll,            },
+        { Gfx_Key_C,         Gfx_KeyModifier_Control,                         CommandKind_Copy,                 },
+        { Gfx_Key_V,         Gfx_KeyModifier_Control,                         CommandKind_Paste,                },
+        { Gfx_Key_X,         Gfx_KeyModifier_Control,                         CommandKind_Cut,                  },
+        { Gfx_Key_Return,    0,                                               CommandKind_Accept,               },
+        { Gfx_Key_Escape,    0,                                               CommandKind_Cancel,               },
     };
 
     for (Gfx_Event *event = graphics_events.first, *next = 0; event; event = next) {
@@ -2159,7 +2197,7 @@ internal Void update(Void) {
 
         for (Command *command = state->first_command; command; command = command->next) {
             push_context_internal(command->context);
-
+            UI_Event *ui_event = 0;
             switch (command->kind) {
                 case CommandKind_Null: {
                 } break;
@@ -2439,8 +2477,276 @@ internal Void update(Void) {
                         }
                     }
                 } break;
+                case CommandKind_SelectWordLeft: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectWordUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectWordRight: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectWordDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectCharacterLeft: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectCharacterUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectCharacterRight: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectCharacterDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_MoveWordLeft: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveWordUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveWordRight: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveWordDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveCharacterLeft: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveCharacterUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveCharacterRight: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveCharacterDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_SelectHome: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Line;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectEnd: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Line;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_MoveHome: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Line;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveEnd: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Line;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_SelectPageUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Page;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectPageDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Page;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_MovePageUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Page;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MovePageDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.y = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Page;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_SelectWholeUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Whole;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_SelectWholeDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Whole;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_MoveWholeUp: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Whole;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_MoveWholeDown: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Whole;
+                    ui_event->flags = UI_EventFlag_PickSelectSide | UI_EventFlag_ZeroDeltaOnSelection;
+                } break;
+                case CommandKind_RemoveWord: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Edit;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_ZeroDeltaOnSelection | UI_EventFlag_Delete;
+                } break;
+                case CommandKind_DeleteWord: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Edit;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Word;
+                    ui_event->flags = UI_EventFlag_ZeroDeltaOnSelection | UI_EventFlag_Delete;
+                } break;
+                case CommandKind_RemoveCharacter: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Edit;
+                    ui_event->delta.x = -1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_ZeroDeltaOnSelection | UI_EventFlag_Delete;
+                } break;
+                case CommandKind_DeleteCharacter: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Edit;
+                    ui_event->delta.x = 1;
+                    ui_event->unit = UI_EventDeltaUnit_Character;
+                    ui_event->flags = UI_EventFlag_ZeroDeltaOnSelection | UI_EventFlag_Delete;
+                } break;
+                case CommandKind_SelectAll: {
+                    UI_Event *move_start = arena_push_struct(ui_frame_arena(), UI_Event);
+                    move_start->kind = UI_EventKind_Navigation;
+                    move_start->unit = UI_EventDeltaUnit_Whole;
+                    move_start->delta.x = -1;
+                    Window *window = window_from_handle(top_context()->window);
+                    if (!is_nil_window(window)) {
+                        ui_event_list_push_event(&window->ui_events, move_start);
+                    }
+
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Navigation;
+                    ui_event->flags = UI_EventFlag_KeepMark;
+                    ui_event->unit = UI_EventDeltaUnit_Whole;
+                    ui_event->delta.x = 1;
+                } break;
+                case CommandKind_Copy: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Edit;
+                    ui_event->flags = UI_EventFlag_Copy | UI_EventFlag_KeepMark;
+                } break;
+                case CommandKind_Paste: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Text;
+                    ui_event->text = gfx_get_clipboard_text(ui_frame_arena());
+                } break;
+                case CommandKind_Cut: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Edit;
+                    ui_event->flags = UI_EventFlag_Copy | UI_EventFlag_Delete;
+                } break;
+                case CommandKind_Accept: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Accept;
+                } break;
+                case CommandKind_Cancel: {
+                    ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
+                    ui_event->kind = UI_EventKind_Cancel;
+                } break;
                 case CommandKind_COUNT: {
                 } break;
+            }
+
+            Window *window = window_from_handle(top_context()->window);
+            if (!is_nil_window(window) && ui_event && ui_event->kind != UI_EventKind_Null) {
+                ui_event_list_push_event(&window->ui_events, ui_event);
             }
 
             pop_context();
