@@ -831,13 +831,22 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
             PropertyRow *row = arena_push_struct(scratch.arena, PropertyRow);
             row->label = property->name;
 
-            Str8 last_component = str8_skip(row->label, 1 + str8_last_index_of(row->label, '.'));
+            // NOTE(simon): Properties from https://docs.pipewire.org/group__pw__keys.html
             if (
-                str8_equal(last_component, str8_literal("id")) ||
-                str8_equal(last_component, str8_literal("client")) ||
-                str8_equal(last_component, str8_literal("device")) ||
-                str8_equal(last_component, str8_literal("node")) ||
-                str8_equal(last_component, str8_literal("port"))
+                str8_equal(row->label, str8_literal("object.id")) ||
+                str8_equal(row->label, str8_literal("core.id")) ||
+                str8_equal(row->label, str8_literal("client.id")) ||
+                str8_equal(row->label, str8_literal("node.id")) ||
+                str8_equal(row->label, str8_literal("node.driver-id")) ||
+                str8_equal(row->label, str8_literal("port.id")) ||
+                str8_equal(row->label, str8_literal("link.id")) ||
+                str8_equal(row->label, str8_literal("link.input.node")) ||
+                str8_equal(row->label, str8_literal("link.input.port")) ||
+                str8_equal(row->label, str8_literal("link.output.node")) ||
+                str8_equal(row->label, str8_literal("link.output.port")) ||
+                str8_equal(row->label, str8_literal("device.id")) ||
+                str8_equal(row->label, str8_literal("module.id")) ||
+                str8_equal(row->label, str8_literal("factory.id"))
             ) {
                 U32 id = pipewire_object_property_u32_from_name(selected_object, row->label);
                 row->reference = pipewire_object_from_id(id);
