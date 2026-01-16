@@ -358,7 +358,7 @@ internal Void   request_frame(Void);
 internal Arena *frame_arena(Void);
 
 internal Str8     kind_from_object(Pipewire_Object *object);
-internal Str8     name_from_object(Pipewire_Object *object);
+internal Str8     name_from_object(Arena *arena, Pipewire_Object *object);
 internal UI_Input object_button(Pipewire_Object *object);
 
 // NOTE(simon): Context.

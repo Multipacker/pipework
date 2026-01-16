@@ -586,7 +586,7 @@ internal Str8 kind_from_object(Pipewire_Object *object) {
     return result;
 }
 
-internal Str8 name_from_object(Pipewire_Object *object) {
+internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
     Str8 name = { 0 };
 
     switch (object->kind) {
@@ -597,14 +597,14 @@ internal Str8 name_from_object(Pipewire_Object *object) {
             name = pipewire_object_property_string_from_name(object, str8_literal("module.name"));
 
             if (!name.size) {
-                name = str8_format(frame_arena(), "Module %u", object->id);
+                name = str8_format(arena, "Module %u", object->id);
             }
         } break;
         case Pipewire_Object_Factory: {
             name = pipewire_object_property_string_from_name(object, str8_literal("factory.name"));
 
             if (!name.size) {
-                name = str8_format(frame_arena(), "Factory %u", object->id);
+                name = str8_format(arena, "Factory %u", object->id);
             }
         } break;
         case Pipewire_Object_Client: {
@@ -615,7 +615,7 @@ internal Str8 name_from_object(Pipewire_Object *object) {
             }
 
             if (!name.size) {
-                name = str8_format(frame_arena(), "Client %u", object->id);
+                name = str8_format(arena, "Client %u", object->id);
             }
         } break;
         case Pipewire_Object_Device: {
@@ -626,7 +626,7 @@ internal Str8 name_from_object(Pipewire_Object *object) {
             }
 
             if (!name.size) {
-                name = str8_format(frame_arena(), "Device %u", object->id);
+                name = str8_format(arena, "Device %u", object->id);
             }
         } break;
         case Pipewire_Object_Node: {
@@ -637,7 +637,7 @@ internal Str8 name_from_object(Pipewire_Object *object) {
             }
 
             if (!name.size) {
-                name = str8_format(frame_arena(), "Node %u", object->id);
+                name = str8_format(arena, "Node %u", object->id);
             }
         } break;
         case Pipewire_Object_Port: {
@@ -648,11 +648,11 @@ internal Str8 name_from_object(Pipewire_Object *object) {
             }
 
             if (!name.size) {
-                name = str8_format(frame_arena(), "Port %u", object->id);
+                name = str8_format(arena, "Port %u", object->id);
             }
         } break;
         case Pipewire_Object_Link: {
-            name = str8_format(frame_arena(), "Link %u", object->id);
+            name = str8_format(arena, "Link %u", object->id);
         } break;
         case Pipewire_Object_COUNT: {
         } break;
@@ -662,7 +662,7 @@ internal Str8 name_from_object(Pipewire_Object *object) {
 }
 
 internal UI_Input object_button(Pipewire_Object *object) {
-    Str8 name = name_from_object(object);
+    Str8 name = name_from_object(ui_frame_arena(), object);
 
     if (pipewire_object_from_handle(state->hovered_object) == object) {
         UI_Palette palette = ui_palette_top();
@@ -782,7 +782,7 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
             ) {
                 U32 id = pipewire_object_property_u32_from_name(selected_object, row->label);
                 row->reference = pipewire_object_from_id(id);
-                row->value = name_from_object(row->reference);
+                row->value = name_from_object(scratch.arena, row->reference);
             } else {
                 row->value = property->value;
             }
@@ -1543,7 +1543,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                 }
             }
 
-            Str8 node_name = name_from_object(node);
+            Str8 node_name = name_from_object(frame_arena(), node);
             F32 node_name_width = font_cache_size_from_font_text_size(ui_font_top(), node_name, ui_font_size_top()).width + 2.0f * ui_text_x_padding_top();
 
             // NOTE(simon): Calculate node size.
@@ -1607,7 +1607,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             ui_width(ui_size_fill())
             ui_height(ui_size_pixels(row_height, 1.0f)) {
                 ui_text_align_next(UI_TextAlign_Center);
-                ui_label(name_from_object(node));
+                ui_label(name_from_object(frame_arena(), node));
 
                 // NOTE(simon): Build port columns.
                 UI_Box *input_column  = &global_ui_null_box;
@@ -2162,7 +2162,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         );
 #pragma clang diagnostic pop
 
-        Str8 name = name_from_object(object);
+        Str8 name = name_from_object(frame_arena(), object);
         UI_Input slider_input = { 0 };
         UI_Input mute_input   = { 0 };
 
