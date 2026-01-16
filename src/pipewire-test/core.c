@@ -1,3 +1,131 @@
+#define COMPARE_FUNCTION(name) S64 name(Void *raw_a, Void *raw_b)
+typedef COMPARE_FUNCTION(CompareFunction);
+
+#define quicksort(items, item_count, compare) quicksort_internal((Void *) items, item_count, sizeof(*items), compare)
+internal Void quicksort_internal(U8 *items, U64 item_count, U64 item_size, CompareFunction *compare) {
+    if (item_count <= 1) {
+        return;
+    }
+
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+    U8 *temp = arena_push_array_no_zero(scratch.arena, U8, item_size);
+
+    // NOTE(simon): Choose pivot by median of three.
+    // NOTE(simon): This makes the sort unstable!!!
+    U64 pivot_index  = 0;
+    U64 first_index  = 0;
+    U64 middle_index = item_count / 2;
+    U64 last_index   = item_count - 1;
+    if ((compare(&items[first_index * item_size], &items[middle_index * item_size]) > 0) ^ (compare(&items[first_index * item_size], &items[last_index * item_size]) > 0)) {
+        pivot_index = first_index;
+    } else if ((compare(&items[middle_index * item_size], &items[first_index * item_size]) < 0) ^ (compare(&items[middle_index * item_size], &items[last_index * item_size]) < 0)) {
+        pivot_index = middle_index;
+    } else {
+        pivot_index = last_index;
+    }
+
+    // NOTE(simon): Swap the pivot to start of list
+    memory_copy(temp,                            &items[0],                       item_size);
+    memory_copy(&items[0],                       &items[pivot_index * item_size], item_size);
+    memory_copy(&items[pivot_index * item_size], temp,                            item_size);
+    pivot_index = 0;
+
+    // NOTE(simon): Partition
+    U64 low_index = 1;
+    U64 high_index = item_count;
+    for (;;) {
+        while (low_index < high_index && compare(&items[low_index * item_size], &items[pivot_index * item_size]) <= 0) {
+            ++low_index;
+        }
+
+        while (low_index < high_index && compare(&items[pivot_index * item_size], &items[(high_index - 1) * item_size]) <= 0) {
+            --high_index;
+        }
+
+        if (low_index < high_index) {
+            memory_copy(temp,                                 &items[low_index * item_size],        item_size);
+            memory_copy(&items[low_index * item_size],        &items[(high_index - 1) * item_size], item_size);
+            memory_copy(&items[(high_index - 1) * item_size], temp,                                 item_size);
+        } else {
+            break;
+        }
+    }
+
+    // NOTE(simon): Swap pivot to the middle.
+    pivot_index = low_index - 1;
+    memory_copy(temp,                            &items[0],                       item_size);
+    memory_copy(&items[0],                       &items[pivot_index * item_size], item_size);
+    memory_copy(&items[pivot_index * item_size], temp,                            item_size);
+
+    arena_end_temporary(scratch);
+
+    // NOTE(simon): Recurse
+    quicksort_internal(items, pivot_index, item_size, compare);
+    quicksort_internal(&items[(pivot_index + 1) * item_size], item_count - pivot_index - 1, item_size, compare);
+}
+
+typedef struct PropertyRow PropertyRow;
+struct PropertyRow {
+    PropertyRow *next;
+    Str8 label;
+    Str8 value;
+    FuzzyMatchList label_matches;
+    FuzzyMatchList value_matches;
+    Pipewire_Object *reference;
+};
+
+internal COMPARE_FUNCTION(property_row_compare) {
+    PropertyRow *a = (PropertyRow *) raw_a;
+    PropertyRow *b = (PropertyRow *) raw_b;
+
+    S64 result = 0;
+
+    // NOTE(simon): More matches mean make items appear earlier.
+    if (result == 0) {
+        if (a->label_matches.count + a->value_matches.count > b->label_matches.count + b->value_matches.count) {
+            result = -1;
+        } else if (a->label_matches.count + a->value_matches.count < b->label_matches.count + b->value_matches.count) {
+            result = 1;
+        }
+    }
+
+    // NOTE(simon): Earlier first matches make items appear earlier.
+    // TODO(simon): Maybe items with less space between matches should be
+    // earlier, or the ones were matches overall are earlier in the string.
+    if (result == 0) {
+        U64 a_first_fuzzy = U64_MAX;
+        for (FuzzyMatch *match = a->label_matches.first; match; match = match->next) {
+            a_first_fuzzy = u64_min(match->min, a_first_fuzzy);
+        }
+        for (FuzzyMatch *match = a->value_matches.first; match; match = match->next) {
+            a_first_fuzzy = u64_min(match->min, a_first_fuzzy);
+        }
+
+        U64 b_first_fuzzy = U64_MAX;
+        for (FuzzyMatch *match = b->label_matches.first; match; match = match->next) {
+            b_first_fuzzy = u64_min(match->min, b_first_fuzzy);
+        }
+        for (FuzzyMatch *match = b->value_matches.first; match; match = match->next) {
+            b_first_fuzzy = u64_min(match->min, b_first_fuzzy);
+        }
+
+        if (a_first_fuzzy < b_first_fuzzy) {
+            result = -1;
+        } else if (a_first_fuzzy > b_first_fuzzy) {
+            result = 1;
+        }
+    }
+
+    // NOTE(simon): Fallback on lexigraphical ordering.
+    if (result == 0) {
+        result = str8_compare_ascii(a->label, b->label);
+    }
+
+    return result;
+}
+
+
+
 // NOTE(simon): Themes.
 
 internal V4F32 color_from_theme(ThemeColor color) {
@@ -597,10 +725,16 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
 }
 
 internal BUILD_TAB_FUNCTION(build_property_tab) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+
     typedef struct TabState TabState;
     struct TabState {
         UI_ScrollPosition scroll_position;
         F32 column_widths[2];
+        U8 query_buffer[1024];
+        U64 query_mark;
+        U64 query_cursor;
+        U64 query_size;
     };
 
     B32 is_new_tab = !tab_from_handle(top_context()->tab)->state;
@@ -611,28 +745,91 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
         tab_state->column_widths[1] = 1.0f / 2.0f;
     }
 
+    V2F32 tab_size   = r2f32_size(tab_rectangle);
+    F32   row_height = 2.0f * (F32) ui_font_size_top();
+
+    ui_focus(UI_Focus_Active)
+    ui_width(ui_size_ems(15.0f, 1.0f))
+    ui_height(ui_size_pixels(row_height, 1.0f))
+    ui_text_x_padding(5.0f) {
+        ui_fixed_position_next(v2f32(0.0f, tab_size.height - row_height));
+        ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
+    }
+
     Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
 
+    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
+
     // NOTE(simon): Collect all properties.
-    S64 property_count = 0;
-    Pipewire_Property **properties = 0;
+
+    PropertyRow *rows = 0;
+    S64 row_count = 0;
     {
+        PropertyRow *first_row = 0;
+        PropertyRow *last_row  = 0;
+
         for (Pipewire_Property *property = selected_object->first_property; property; property = property->next) {
-            ++property_count;
+            PropertyRow *row = arena_push_struct(scratch.arena, PropertyRow);
+            row->label = property->name;
+
+            Str8 last_component = str8_skip(row->label, 1 + str8_last_index_of(row->label, '.'));
+            if (
+                str8_equal(last_component, str8_literal("id")) ||
+                str8_equal(last_component, str8_literal("client")) ||
+                str8_equal(last_component, str8_literal("device")) ||
+                str8_equal(last_component, str8_literal("node")) ||
+                str8_equal(last_component, str8_literal("port"))
+            ) {
+                U32 id = pipewire_object_property_u32_from_name(selected_object, row->label);
+                row->reference = pipewire_object_from_id(id);
+                row->value = name_from_object(row->reference);
+            } else {
+                row->value = property->value;
+            }
+
+            row->label_matches = str8_fuzzy_match(scratch.arena, query, row->label);
+            row->value_matches = str8_fuzzy_match(scratch.arena, query, row->value);
+
+            // NOTE(simon): Add generated row to output.
+            sll_queue_push(first_row, last_row, row);
+            ++row_count;
         }
-        properties = arena_push_array(frame_arena(), Pipewire_Property *, (U64) property_count);
-        for (Pipewire_Property *property = selected_object->first_property, **property_ptr = properties; property; property = property->next) {
-            *property_ptr++ = property;
+
+        // NOTE(simon): Flatten generated rows to array.
+        rows = arena_push_array(frame_arena(), PropertyRow, (U64) row_count);
+        for (PropertyRow *row = first_row, *row_ptr = rows; row; row = row->next) {
+            *row_ptr++ = *row;
         }
     }
 
-    V2F32 tab_size   = r2f32_size(tab_rectangle);
-    F32   row_height = 2.0f * (F32) ui_font_size_top();
+    // NOTE(simon): Filter
+    for (S64 i = 0; i < row_count;) {
+        FuzzyMatchList label_matches = rows[i].label_matches;
+        FuzzyMatchList value_matches = rows[i].value_matches;
+
+        B32 remove = false;
+
+        // NOTE(simon): If there are search terms and no matches, remove the item.
+        remove |= label_matches.needle_parts && !label_matches.count && value_matches.needle_parts && !value_matches.count;
+
+        // NOTE(simon): If the number of mathes doesn't match the
+        // number of search terms, remove the item.
+        remove |= label_matches.needle_parts != label_matches.count && value_matches.needle_parts != value_matches.count;
+
+        if (remove) {
+            swap(rows[i], rows[row_count - 1], PropertyRow);
+            --row_count;
+        } else {
+            ++i;
+        }
+    }
+
+    quicksort(rows, (U64) row_count, property_row_compare);
 
     R1S64 visible_range = { 0 };
     ui_palette(palette_from_theme(ThemePalette_Button))
     ui_font(font_cache_font_from_static_data(&mono_font))
-    ui_scroll_region(tab_size, row_height, property_count, &visible_range, 0, &tab_state->scroll_position)
+    ui_scroll_region(tab_size, row_height, row_count, &visible_range, 0, &tab_state->scroll_position)
     ui_text_x_padding(5.0f)
     ui_palette(palette_from_theme(ThemePalette_Base)) {
         // NOTE(simon): Build column resize handles
@@ -683,21 +880,9 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
 
         // NOTE(simon): Build rows.
         for (S64 i = visible_range.min; i < visible_range.max; ++i) {
-            Pipewire_Property *property = properties[i];
+            PropertyRow *row = &rows[i];
 
             // NOTE(simon): Use heuristics to determine if the property is a reference to another object.
-            Pipewire_Object *reference = &pipewire_nil_object;
-            Str8 last_component = str8_skip(property->name, 1 + str8_last_index_of(property->name, '.'));
-            if (
-                str8_equal(last_component, str8_literal("id")) ||
-                str8_equal(last_component, str8_literal("client")) ||
-                str8_equal(last_component, str8_literal("device")) ||
-                str8_equal(last_component, str8_literal("node")) ||
-                str8_equal(last_component, str8_literal("port"))
-            ) {
-                U32 id = pipewire_object_property_u32_from_name(selected_object, property->name);
-                reference = pipewire_object_from_id(id);
-            }
 
             ui_width(ui_size_parent_percent(1.0f, 1.0f))
             ui_row() {
@@ -705,7 +890,8 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
                 ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
                 ui_row() {
                     ui_width_next(ui_size_text_content(0.0f, 1.0f));
-                    ui_label(property->name);
+                    UI_Box *label = ui_label(row->label);
+                    ui_box_set_fuzzy_match_list(label, row->label_matches);
                 }
 
                 ui_width_next(ui_size_parent_percent(tab_state->column_widths[1], 1.0f));
@@ -713,16 +899,20 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
                 ui_row() {
                     ui_width_next(ui_size_fill());
                     // NOTE(simon): Create a button if we are a reference.
-                    if (!pipewire_object_is_nil(reference)) {
+                    if (!pipewire_object_is_nil(row->reference)) {
                         ui_palette_next(palette_from_theme(ThemePalette_Button));
-                        object_button(reference);
+                        UI_Input input = object_button(row->reference);
+                        ui_box_set_fuzzy_match_list(input.box, row->value_matches);
                     } else {
-                        ui_label(property->value);
+                        UI_Box *value = ui_label(row->value);
+                        ui_box_set_fuzzy_match_list(value, row->value_matches);
                     }
                 }
             }
         }
     }
+
+    arena_end_temporary(scratch);
 }
 
 internal BUILD_TAB_FUNCTION(build_parameter_tab) {
