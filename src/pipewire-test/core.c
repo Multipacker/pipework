@@ -121,6 +121,10 @@ internal COMPARE_FUNCTION(property_row_compare) {
         result = str8_compare_ascii(a->label, b->label);
     }
 
+    if (result == 0) {
+        result = str8_compare_ascii(a->value, b->value);
+    }
+
     return result;
 }
 
@@ -684,44 +688,100 @@ internal BUILD_TAB_FUNCTION(build_nil_tab) {
 }
 
 internal BUILD_TAB_FUNCTION(build_list_tab) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+
     typedef struct TabState TabState;
     struct TabState {
         UI_ScrollPosition all_objects_scroll_position;
+        U8  query_buffer[1024];
+        U64 query_mark;
+        U64 query_cursor;
+        U64 query_size;
     };
 
     TabState *tab_state = tab_state_from_type(TabState);
 
+    V2F32 tab_size   = r2f32_size(tab_rectangle);
+    F32   row_height = 2.0f * (F32) ui_font_size_top();
+
+    ui_focus(UI_Focus_Active)
+    ui_width(ui_size_ems(15.0f, 1.0f))
+    ui_height(ui_size_pixels(row_height, 1.0f))
+    ui_text_x_padding(5.0f) {
+        ui_fixed_position_next(v2f32(0.0f, tab_size.height - row_height));
+        ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
+    }
+
+    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
+
     // NOTE(simon): Collect pipewire objects.
-    S64 object_count = { 0 };
-    Pipewire_Object **objects = 0;
+    PropertyRow *rows = 0;
+    S64 row_count = 0;
     {
+        PropertyRow *first_row = 0;
+        PropertyRow *last_row  = 0;
+
         for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-            ++object_count;
+            PropertyRow *row = arena_push_struct(scratch.arena, PropertyRow);
+            row->reference = object;
+            row->value = name_from_object(scratch.arena, row->reference);
+            row->value_matches = str8_fuzzy_match(scratch.arena, query, row->value);
+
+            // NOTE(simon): Add generated row to output.
+            sll_queue_push(first_row, last_row, row);
+            ++row_count;
         }
 
-        objects = arena_push_array_no_zero(frame_arena(), Pipewire_Object *, (U64) object_count);
-        Pipewire_Object **object_ptr = objects;
-        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-            *object_ptr = object;
-            ++object_ptr;
+        // NOTE(simon): Flatten generated rows to array.
+        rows = arena_push_array(frame_arena(), PropertyRow, (U64) row_count);
+        for (PropertyRow *row = first_row, *row_ptr = rows; row; row = row->next) {
+            *row_ptr++ = *row;
         }
     }
 
-    V2F32 tab_size   = r2f32_size(tab_rectangle);
-    F32   row_height = 2.0f * (F32) ui_font_size_top();
+    // NOTE(simon): Filter
+    for (S64 i = 0; i < row_count;) {
+        FuzzyMatchList label_matches = rows[i].label_matches;
+        FuzzyMatchList value_matches = rows[i].value_matches;
+
+        B32 remove = false;
+
+        // NOTE(simon): If there are search terms and no matches, remove the item.
+        remove |=
+            (rows[i].label.size == 0 || (label_matches.needle_parts && !label_matches.count)) &&
+            (rows[i].value.size == 0 || (value_matches.needle_parts && !value_matches.count));
+
+        // NOTE(simon): If the number of mathes doesn't match the
+        // number of search terms, remove the item.
+        remove |=
+            (rows[i].label.size == 0 || (label_matches.needle_parts != label_matches.count)) &&
+            (rows[i].value.size == 0 || (value_matches.needle_parts != value_matches.count));
+
+        if (remove) {
+            swap(rows[i], rows[row_count - 1], PropertyRow);
+            --row_count;
+        } else {
+            ++i;
+        }
+    }
+
+    quicksort(rows, (U64) row_count, property_row_compare);
 
     // NOTE(simon): Build list of all objects.
     R1S64 visible_range = { 0 };
     ui_palette(palette_from_theme(ThemePalette_Button))
-    ui_scroll_region(tab_size, row_height, object_count, &visible_range, 0, &tab_state->all_objects_scroll_position) {
+    ui_scroll_region(tab_size, row_height, row_count, &visible_range, 0, &tab_state->all_objects_scroll_position) {
         ui_text_x_padding(5.0f)
         ui_width(ui_size_fill())
         ui_height(ui_size_pixels(row_height, 1.0f))
         for (S64 i = visible_range.min; i < visible_range.max; ++i) {
-            Pipewire_Object *object = objects[i];
-            object_button(object);
+            PropertyRow *row = &rows[i];
+            UI_Input input = object_button(row->reference);
+            ui_box_set_fuzzy_match_list(input.box, row->value_matches);
         }
     }
+
+    arena_end_temporary(scratch);
 }
 
 internal BUILD_TAB_FUNCTION(build_property_tab) {
@@ -731,7 +791,7 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     struct TabState {
         UI_ScrollPosition scroll_position;
         F32 column_widths[2];
-        U8 query_buffer[1024];
+        U8  query_buffer[1024];
         U64 query_mark;
         U64 query_cursor;
         U64 query_size;
@@ -761,7 +821,6 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
 
     // NOTE(simon): Collect all properties.
-
     PropertyRow *rows = 0;
     S64 row_count = 0;
     {
@@ -810,11 +869,15 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
         B32 remove = false;
 
         // NOTE(simon): If there are search terms and no matches, remove the item.
-        remove |= label_matches.needle_parts && !label_matches.count && value_matches.needle_parts && !value_matches.count;
+        remove |=
+            (rows[i].label.size == 0 || (label_matches.needle_parts && !label_matches.count)) &&
+            (rows[i].value.size == 0 || (value_matches.needle_parts && !value_matches.count));
 
         // NOTE(simon): If the number of mathes doesn't match the
         // number of search terms, remove the item.
-        remove |= label_matches.needle_parts != label_matches.count && value_matches.needle_parts != value_matches.count;
+        remove |=
+            (rows[i].label.size == 0 || (label_matches.needle_parts != label_matches.count)) &&
+            (rows[i].value.size == 0 || (value_matches.needle_parts != value_matches.count));
 
         if (remove) {
             swap(rows[i], rows[row_count - 1], PropertyRow);
