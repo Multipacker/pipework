@@ -1051,15 +1051,27 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
         // NOTE(simon): Queue up all parameters.
         Work *first_work = 0;
         Work *last_work = 0;
-        for (Pipewire_Parameter *parameter = selected_object->first_parameter; parameter; parameter = parameter->next) {
-            Work *work = arena_push_struct(frame_arena(), Work);
-            work->label = str8_cstr((CStr) spa_debug_type_find_short_name(spa_type_param, parameter->id));
-            work->body = SPA_POD_BODY(parameter->param);
-            work->type = parameter->param->type;
-            work->size = parameter->param->size;
-            work->type_info = spa_debug_type_find(SPA_TYPE_ROOT, parameter->param->type);
-            work->hash = u64_hash(parameter->id);
-            sll_queue_push(first_work, last_work, work);
+        {
+            U64 index = 0;
+            for (Pipewire_Parameter *parameter = selected_object->first_parameter; parameter; parameter = parameter->next, ++index) {
+                Work *work = arena_push_struct(frame_arena(), Work);
+                work->label = str8_cstr((CStr) spa_debug_type_find_short_name(spa_type_param, parameter->id));
+                work->body = SPA_POD_BODY(parameter->param);
+                work->type = parameter->param->type;
+                work->size = parameter->param->size;
+                work->type_info = spa_debug_type_find(SPA_TYPE_ROOT, parameter->param->type);
+                // TODO(simon): There isn't really an ideal way to key this as
+                // we can have multiple of every property. Maybe we should
+                // group them by id and have a list in there?
+                work->hash = hash_combine(
+                    hash_combine(
+                        u64_hash(state->selected_object.u64[0]),
+                        u64_hash(state->selected_object.u64[1])
+                    ),
+                    u64_hash(index)
+                );
+                sll_queue_push(first_work, last_work, work);
+            }
         }
 
         // NOTE(simon): Generate one row for each work item and potentially
@@ -1469,35 +1481,31 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
 }
 
 internal V4F32 color_from_port_media_type(Pipewire_Object *object) {
-    // NOTE(simon): Find Format or EnumFormat parameter.
-    struct spa_pod *format_parameter = 0;
-    if (object->kind == Pipewire_Object_Port) {
-        format_parameter = pipewire_object_parameter_from_id(object, SPA_PARAM_Format)->param;
-        if (!format_parameter) {
-            // NOTE(simon): This assumes that a port cannot support multiple
-            // differnet media types, only different subtypes.
-            format_parameter = pipewire_object_parameter_from_id(object, SPA_PARAM_EnumFormat)->param;
-        }
-    }
-
-    // NOTE(simon): Find the media type property POD.
-    const struct spa_pod *media_type_pod = 0;
-    if (format_parameter) {
-        const struct spa_pod_prop *media_type_property = spa_pod_find_prop(format_parameter, 0, SPA_FORMAT_mediaType);
-        if (media_type_property) {
-            media_type_pod = &media_type_property->value;
-        }
-    }
-
-    // NOTE(simon): Extract media type.
     U32 media_type = SPA_MEDIA_TYPE_unknown;
-    if (media_type_pod) {
-        U32 media_type_count = 0;
-        U32 choice = SPA_CHOICE_None;
-        struct spa_pod *media_types = spa_pod_get_values(media_type_pod, &media_type_count, &choice);
 
-        if (media_types->type == SPA_TYPE_Id && media_type_count >= 1) {
-            media_type = *(U32 *) SPA_POD_BODY(media_types);
+    // NOTE(simon): Look for medaType on Format
+    const struct spa_pod *media_type_pod = 0;
+    for (Pipewire_Parameter *parameter = object->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
+        if (parameter->id == SPA_PARAM_Format) {
+            const struct spa_pod_prop *media_type_property = spa_pod_find_prop(parameter->param, 0, SPA_FORMAT_mediaType);
+            if (media_type_property) {
+                spa_pod_get_id(&media_type_property->value, &media_type);
+                break;
+            }
+        }
+    }
+
+    // NOTE(simon): Look for medaType on EnumFormat This assumes that a port
+    // cannot support multiple differnet media types, only different subtypes.
+    if (media_type == SPA_MEDIA_TYPE_unknown) {
+        for (Pipewire_Parameter *parameter = object->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
+            if (parameter->id == SPA_PARAM_EnumFormat) {
+                const struct spa_pod_prop *media_type_property = spa_pod_find_prop(parameter->param, 0, SPA_FORMAT_mediaType);
+                if (media_type_property) {
+                    spa_pod_get_id(&media_type_property->value, &media_type);
+                    break;
+                }
+            }
         }
     }
 
@@ -2183,47 +2191,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
             continue;
         }
 
-        Pipewire_Parameter *props = pipewire_object_parameter_from_id(object, SPA_PARAM_Props);
-        if (pipewire_parameter_is_nil(props)) {
-            continue;
-        }
-
-        U32 id              = 0;
-        B32 mute            = false;
-        U32 channel_volumes_size  = 0;
-        U32 channel_volumes_type  = 0;
-        U32 channel_volumes_count = 0;
-        F32 *channel_volumes = 0;
-        F32 volume_base     = 0.0f;
-        F32 volume_step     = 0.0f;
-        U32 channel_map_size  = 0;
-        U32 channel_map_type  = 0;
-        U32 channel_map_count = 0;
-        U32 *channel_map = 0;
-
-        struct spa_pod_parser parser = { 0 };
-        spa_pod_parser_pod(&parser, props->param);
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
-        spa_pod_parser_get_object(
-            &parser,
-            SPA_TYPE_OBJECT_Props,   &id,
-            SPA_PROP_mute,           SPA_POD_OPT_Bool(&mute),
-            SPA_PROP_channelVolumes, SPA_POD_OPT_Array(&channel_volumes_size, &channel_volumes_type, &channel_volumes_count, &channel_volumes),
-            SPA_PROP_volumeBase,     SPA_POD_OPT_Float(&volume_base),
-            SPA_PROP_volumeStep,     SPA_POD_OPT_Float(&volume_step),
-            SPA_PROP_channelMap,     SPA_POD_OPT_Array(&channel_map_size, &channel_map_type, &channel_map_count, &channel_map)
-            //SPA_PROP_monitorMute,    SPA_POD_OPT_Bool(&monitor_mute),
-            //SPA_PROP_monitorVolumes, ,
-            //SPA_PROP_softMute,       SPA_POD_OPT_Bool(&soft_mute),
-            //SPA_PROP_softVolumes, ,
-            //SPA_PROP_volumeRampSamples, ,
-            //SPA_PROP_volumeRampStepSamples, ,
-            //SPA_PROP_volumeRampTime, ,
-            //SPA_PROP_volumeRampStepTime, ,
-            //SPA_PROP_volumeRampScale, ,
-        );
-#pragma clang diagnostic pop
+        Pipewire_Volume volume = pipewire_volume_from_node(object);
 
         Str8 name = name_from_object(frame_arena(), object);
         UI_Input slider_input = { 0 };
@@ -2231,13 +2199,13 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
 
         // NOTE(simon): Determine collective volume for all channels by
         // computing them max.
-        F32 volume = 0.0f;
-        for (U32 j = 0; j < channel_volumes_count; ++j) {
-            volume = f32_max(volume, channel_volumes[j]);
+        F32 combined_volume = 0.0f;
+        for (U32 j = 0; j < volume.channel_count; ++j) {
+            combined_volume = f32_max(combined_volume, volume.channel_volumes[j]);
         }
 
         // NOTE(simon): Use the same "linearization" as PulseAudio.
-        F32 linear = f32_cbrt(volume);
+        F32 linear = f32_cbrt(combined_volume);
 
         ui_label_format("%.*s, %.0f%%", str8_expand(name), 100.0f * linear);
         ui_width(ui_size_children_sum(1.0f))
@@ -2245,25 +2213,25 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         ui_row() {
             ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
 
-            mute_input = light_toggle_b32(&mute, str8_literal("Mute"), ui_key_from_string_format(ui_active_seed_key(), "%p_mute", object));
+            mute_input = light_toggle_b32(&volume.mute, str8_literal("Mute"), ui_key_from_string_format(ui_active_seed_key(), "%p_mute", object));
 
             ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
 
             UI_Key channel_key = ui_key_from_string_format(ui_active_seed_key(), "%p_volume", object);
             ui_width_next(ui_size_ems(20.0f, 1.0f));
-            slider_input = volume_slider(volume_base, &linear, channel_key);
+            slider_input = volume_slider(volume.volume_base, &linear, channel_key);
 
             // NOTE(simon): "Delinearize" as PulseAudio after modification.
-            volume = linear * linear * linear;
+            combined_volume = linear * linear * linear;
 
-            F32 db = 20.0f * f32_ln(volume) / f32_ln(10.0f);
+            F32 db = 20.0f * f32_ln(combined_volume) / f32_ln(10.0f);
             ui_width_next(ui_size_text_content(0.0f, 1.0f));
             ui_label_format("%.2f dB", db);
         }
 
         // NOTE(simon): Distribute the new volume across the channels.
-        for (U32 j = 0; j < channel_volumes_count; ++j) {
-            channel_volumes[j] = volume;
+        for (U32 j = 0; j < volume.channel_count; ++j) {
+            volume.channel_volumes[j] = combined_volume;
         }
 
         if (mute_input.flags & UI_InputFlag_LeftClicked || slider_input.flags & UI_InputFlag_LeftDragging) {
@@ -2275,8 +2243,8 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
             struct spa_pod *pod = spa_pod_builder_add_object(
                 &builder,
                 SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
-                SPA_PROP_mute, SPA_POD_Bool(mute),
-                SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, channel_volumes_count, channel_volumes)
+                SPA_PROP_mute, SPA_POD_Bool(volume.mute),
+                SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
             );
 #pragma clang diagnostic pop
             pw_node_set_param((struct pw_node *) object->proxy, SPA_PARAM_Props, 0, pod);

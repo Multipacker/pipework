@@ -66,6 +66,36 @@ internal Void pipewire_destroy_object(Pipewire_Object *object) {
         sll_stack_push(pipewire_state->parameter_freelist, parameter);
     }
 
+    if (object->info) {
+        switch (object->kind) {
+            case Pipewire_Object_Null: {
+            } break;
+            case Pipewire_Object_Module: {
+                pw_module_info_free(object->info);
+            } break;
+            case Pipewire_Object_Factory: {
+                pw_factory_info_free(object->info);
+            } break;
+            case Pipewire_Object_Client: {
+                pw_client_info_free(object->info);
+            } break;
+            case Pipewire_Object_Device: {
+                pw_device_info_free(object->info);
+            } break;
+            case Pipewire_Object_Node: {
+                pw_node_info_free(object->info);
+            } break;
+            case Pipewire_Object_Port: {
+                pw_port_info_free(object->info);
+            } break;
+            case Pipewire_Object_Link: {
+                pw_link_info_free(object->info);
+            } break;
+            case Pipewire_Object_COUNT: {
+            } break;
+        }
+    }
+
     spa_hook_remove(&object->listener);
     pw_proxy_destroy(object->proxy);
 
@@ -133,49 +163,28 @@ internal B32 pipewire_parameter_is_nil(Pipewire_Parameter *parameter) {
     return result;
 }
 
+internal Void pipewire_object_remove_parameter(Pipewire_Object *object, U32 id) {
+    for (Pipewire_Parameter *parameter = object->first_parameter, *next = 0; !pipewire_parameter_is_nil(parameter); parameter = next) {
+        next = parameter->next;
+
+        if (parameter->id == id) {
+            dll_remove(object->first_parameter, object->last_parameter, parameter);
+            pipewire_spa_pod_free(parameter->param);
+            sll_stack_push(pipewire_state->parameter_freelist, parameter);
+        }
+    }
+}
+
 internal Void pipewire_object_update_parameter(Pipewire_Object *object, S32 sequence, U32 id, struct spa_pod *param) {
-    Pipewire_Parameter *existing_parameter = pipewire_object_parameter_from_id(object, id);
-
-    struct spa_pod *old_param = 0;
-    if (existing_parameter->sequence == sequence) {
-        old_param = existing_parameter->param;
+    B32 should_add = param != 0;
+    for (U32 i = 0; i < object->param_count; ++i) {
+        if (object->params[i].id == id) {
+            should_add &= object->params[i].seq == sequence;
+            break;
+        }
     }
 
-    struct spa_pod *new_param = 0;
-    if (spa_pod_is_object(param)) {
-        U64 buffer_size = sizeof(*param) + param->size;
-        if (old_param) {
-            buffer_size += sizeof(*old_param) + old_param->size;
-        }
-        U8 *buffer = pipewire_allocate(buffer_size);
-        struct spa_pod_builder builder = { 0 };
-        struct spa_pod_frame   frame   = { 0 };
-        struct spa_pod_prop   *prop    = 0;
-        spa_pod_builder_init(&builder, buffer, (U32) buffer_size);
-
-        struct spa_pod_object *new_object = (struct spa_pod_object *) param;
-        struct spa_pod_object *old_object = (struct spa_pod_object *) old_param;
-
-        spa_pod_builder_push_object(&builder, &frame, new_object->body.type, new_object->body.id);
-        if (old_param) {
-            SPA_POD_OBJECT_FOREACH(old_object, prop) {
-                spa_pod_builder_prop(&builder, prop->key, prop->flags);
-                spa_pod_builder_primitive(&builder, &prop->value);
-            }
-        }
-        SPA_POD_OBJECT_FOREACH(new_object, prop) {
-            spa_pod_builder_prop(&builder, prop->key, prop->flags);
-            spa_pod_builder_primitive(&builder, &prop->value);
-        }
-        new_param = spa_pod_builder_pop(&builder, &frame);
-    } else {
-        new_param = pipewire_spa_pod_allocate(param);
-    }
-
-    // NOTE(simon): Replace the value.
-    if (!pipewire_parameter_is_nil(existing_parameter)) {
-        pipewire_spa_pod_free(existing_parameter->param);
-    } else {
+    if (should_add) {
         Pipewire_Parameter *parameter = pipewire_state->parameter_freelist;
         if (parameter) {
             sll_stack_pop(pipewire_state->parameter_freelist);
@@ -184,24 +193,11 @@ internal Void pipewire_object_update_parameter(Pipewire_Object *object, S32 sequ
             parameter = arena_push_struct(pipewire_state->arena, Pipewire_Parameter);
         }
 
-        parameter->id = id;
+        parameter->id       = id;
+        parameter->param    = pipewire_spa_pod_allocate(param);
+
         dll_push_back(object->first_parameter, object->last_parameter, parameter);
-
-        existing_parameter = parameter;
     }
-    existing_parameter->sequence = sequence;
-    existing_parameter->param    = new_param;
-}
-
-internal Pipewire_Parameter *pipewire_object_parameter_from_id(Pipewire_Object *object, U32 id) {
-    Pipewire_Parameter *result = &pipewire_nil_parameter;
-    for (Pipewire_Parameter *parameter = object->first_parameter; parameter; parameter = parameter->next) {
-        if (parameter->id == id) {
-            result = parameter;
-            break;
-        }
-    }
-    return result;
 }
 
 
@@ -383,10 +379,59 @@ internal Void pipewire_remove(Pipewire_Handle handle) {
 
 
 
+internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object) {
+    Pipewire_Volume volume = { 0 };
+
+    bool mute = false;
+    U32 channel_volumes_count = 0;
+    U32 channel_map_count = 0;
+
+    for (Pipewire_Parameter *parameter = object->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
+        if (parameter->id == SPA_PARAM_Props) {
+            struct spa_pod_prop *property = 0;
+            SPA_POD_OBJECT_FOREACH((struct spa_pod_object *) parameter->param, property) {
+                switch (property->key) {
+                    case SPA_PROP_mute: {
+                        spa_pod_get_bool(&property->value, &mute) >= 0;
+                    } break;
+                    case SPA_PROP_channelVolumes: {
+                        channel_volumes_count = spa_pod_copy_array(&property->value, SPA_TYPE_Float, volume.channel_volumes, array_count(volume.channel_volumes));
+                    } break;
+                    case SPA_PROP_volumeBase: {
+                        spa_pod_get_float(&property->value, &volume.volume_base) >= 0;
+                    } break;
+                    case SPA_PROP_volumeStep: {
+                        spa_pod_get_float(&property->value, &volume.volume_step) >= 0;
+                    } break;
+                    case SPA_PROP_channelMap: {
+                        channel_map_count = spa_pod_copy_array(&property->value, SPA_TYPE_Id, volume.channel_map, array_count(volume.channel_map));
+                    } break;
+                    //SPA_PROP_monitorMute,    SPA_POD_OPT_Bool(&monitor_mute),
+                    //SPA_PROP_monitorVolumes, ,
+                    //SPA_PROP_softMute,       SPA_POD_OPT_Bool(&soft_mute),
+                    //SPA_PROP_softVolumes, ,
+                    //SPA_PROP_volumeRampSamples, ,
+                    //SPA_PROP_volumeRampStepSamples, ,
+                    //SPA_PROP_volumeRampTime, ,
+                    //SPA_PROP_volumeRampStepTime, ,
+                    //SPA_PROP_volumeRampScale, ,
+                }
+            }
+        }
+    }
+
+    volume.mute = mute;
+    volume.channel_count = u32_min(channel_volumes_count, channel_map_count);
+
+    return volume;
+}
+
+
+
 internal Void pipewire_module_info(Void *data, const struct pw_module_info *info) {
     Pipewire_Object *module = (Pipewire_Object *) data;
 
-    module->module_info = pw_module_info_update(module->module_info, info);
+    info = module->info = pw_module_info_update(module->info, info);
 
     if (info->change_mask & PW_MODULE_CHANGE_MASK_PROPS) {
         const struct spa_dict_item *item = 0;
@@ -401,7 +446,7 @@ internal Void pipewire_module_info(Void *data, const struct pw_module_info *info
 internal Void pipewire_factory_info(Void *data, const struct pw_factory_info *info) {
     Pipewire_Object *factory = (Pipewire_Object *) data;
 
-    factory->factory_info = pw_factory_info_update(factory->factory_info, info);
+    info = factory->info = pw_factory_info_update(factory->info, info);
 
     if (info->change_mask & PW_FACTORY_CHANGE_MASK_PROPS) {
         const struct spa_dict_item *item = 0;
@@ -416,7 +461,7 @@ internal Void pipewire_factory_info(Void *data, const struct pw_factory_info *in
 internal Void pipewire_client_info(Void *data, const struct pw_client_info *info) {
     Pipewire_Object *client = (Pipewire_Object *) data;
 
-    client->client_info = pw_client_info_update(client->client_info, info);
+    info = client->info = pw_client_info_update(client->info, info);
 
     if (info->change_mask & PW_CLIENT_CHANGE_MASK_PROPS) {
         const struct spa_dict_item *item = 0;
@@ -430,26 +475,35 @@ internal Void pipewire_client_info(Void *data, const struct pw_client_info *info
 
 internal Void pipewire_node_info(Void *data, const struct pw_node_info *info) {
     Pipewire_Object *node = (Pipewire_Object *) data;
+    B32 changed = false;
 
-    node->node_info = pw_node_info_update(node->node_info, info);
-    if (node->node_info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
-        for (U32 i = 0; i < node->node_info->n_params; ++i) {
-            // NOTE(simon): Only enumerate paramters that have changed.
-            if (node->node_info->params[i].user == 0) {
+    info = node->info = pw_node_info_merge(node->info, info, !node->changed);
+    node->params = info->params;
+    node->param_count = info->n_params;
+    if (info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
+        for (U32 i = 0; i < info->n_params; ++i) {
+            U32 id = info->params[i].id;
+
+            // NOTE(simon): Set by pw_node_info_merge for new/updated
+            // parameters. Only enumerate paramters that have changed.
+            if (info->params[i].user == 0) {
                 continue;
             }
-            node->node_info->params[i].user = 0;
+
+            changed = true;
+
+            // NOTE(simon): Clear all previous pending parameters for this ID.
+            pipewire_object_remove_parameter(node, id);
 
             // NOTE(simon): No purpose in requesting parameters that we cannot read.
-            if (!(node->node_info->params[i].flags & SPA_PARAM_INFO_READ)) {
-                continue;
+            if (info->params[i].flags & SPA_PARAM_INFO_READ) {
+                info->params[i].seq = pw_node_enum_params((struct pw_node *) node->proxy, ++info->params[i].seq, id, 0, U32_MAX, 0);
             }
-
-            pw_node_enum_params((struct pw_node *) node->proxy, ++node->node_info->params[i].seq, node->node_info->params[i].id, 0, U32_MAX, 0);
         }
     }
 
     if (info->change_mask & PW_NODE_CHANGE_MASK_PROPS) {
+        changed = true;
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(node, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
@@ -480,6 +534,11 @@ internal Void pipewire_node_info(Void *data, const struct pw_node_info *info) {
             }
         }
     }
+
+    if (changed) {
+        node->changed = true;
+        pipewire_synchronize();
+    }
 }
 
 internal Void pipewire_node_param(Void *data, S32 seq, U32 id, U32 index, U32 next, const struct spa_pod *param) {
@@ -492,26 +551,36 @@ internal Void pipewire_node_param(Void *data, S32 seq, U32 id, U32 index, U32 ne
 
 internal Void pipewire_port_info(Void *data, const struct pw_port_info *info) {
     Pipewire_Object *port = (Pipewire_Object *) data;
+    B32 changed = false;
 
-    port->port_info = pw_port_info_update(port->port_info, info);
+    info = port->info = pw_port_info_merge(port->info, info, !port->changed);
+    port->params = info->params;
+    port->param_count = info->n_params;
     if (info->change_mask & PW_PORT_CHANGE_MASK_PARAMS) {
         for (U32 i = 0; i < info->n_params; ++i) {
-            // NOTE(simon): Only enumerate paramters that have changed.
+            U32 id = info->params[i].id;
+
+            // NOTE(simon): Set by pw_port_info_merge for new/updated
+            // parameters. Only enumerate paramters that have changed.
             if (info->params[i].user == 0) {
                 continue;
             }
-            info->params[i].user = 0;
+
+            changed = true;
+
+            // NOTE(simon): Clear all previous pending parameters for this ID.
+            pipewire_object_remove_parameter(port, id);
 
             // NOTE(simon): No purpose in requesting parameters that we cannot read.
-            if (!(info->params[i].flags & SPA_PARAM_INFO_READ)) {
-                continue;
+            if (info->params[i].flags & SPA_PARAM_INFO_READ) {
+                info->params[i].seq = pw_port_enum_params((struct pw_port *) port->proxy, ++info->params[i].seq, id, 0, U32_MAX, 0);
             }
 
-            pw_port_enum_params((struct pw_port *) port->proxy, ++port->port_info->params[i].seq, info->params[i].id, 0, U32_MAX, 0);
         }
     }
 
     if (info->change_mask & PW_PORT_CHANGE_MASK_PROPS) {
+        changed = true;
         const struct spa_dict_item *item = 0;
         spa_dict_for_each(item, info->props) {
             pipewire_object_update_property(port, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
@@ -533,6 +602,11 @@ internal Void pipewire_port_info(Void *data, const struct pw_port_info *info) {
             }
         }
     }
+
+    if (changed) {
+        port->changed = true;
+        pipewire_synchronize();
+    }
 }
 
 internal Void pipewire_port_param(Void *data, S32 seq, U32 id, U32 index, U32 next, const struct spa_pod *param) {
@@ -545,29 +619,44 @@ internal Void pipewire_port_param(Void *data, S32 seq, U32 id, U32 index, U32 ne
 
 internal Void pipewire_device_info(Void *data, const struct pw_device_info *info) {
     Pipewire_Object *device = data;
+    B32 changed = false;
 
-    device->device_info = pw_device_info_update(device->device_info, info);
+    info = device->info = pw_device_info_merge(device->info, info, !device->changed);
+    device->params = info->params;
+    device->param_count = info->n_params;
     if (info->change_mask & PW_DEVICE_CHANGE_MASK_PARAMS) {
         for (U32 i = 0; i < info->n_params; ++i) {
-            // NOTE(simon): Only enumerate paramters that have changed.
+            U32 id = info->params[i].id;
+
+            // NOTE(simon): Set by pw_device_info_merge for new/updated
+            // parameters. Only enumerate paramters that have changed.
             if (info->params[i].user == 0) {
                 continue;
             }
-            info->params[i].user = 0;
+
+            changed = true;
+
+            // NOTE(simon): Clear all previous pending parameters for this ID.
+            pipewire_object_remove_parameter(device, id);
 
             // NOTE(simon): No purpose in requesting parameters that we cannot read.
-            if (!(info->params[i].flags & SPA_PARAM_INFO_READ)) {
-                continue;
+            if (info->params[i].flags & SPA_PARAM_INFO_READ) {
+                info->params[i].seq = pw_device_enum_params((struct pw_device *) device->proxy, ++info->params[i].seq, id, 0, U32_MAX, 0);
             }
-
-            // TODO(simon): Keep track of sequence numbers to know if we have the most up to date information.
-            pw_device_enum_params((struct pw_device *) device->proxy, ++device->device_info->params[i].seq, info->params[i].id, 0, U32_MAX, 0);
         }
     }
 
-    const struct spa_dict_item *item = 0;
-    spa_dict_for_each(item, info->props) {
-        pipewire_object_update_property(device, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
+    if (info->change_mask & PW_DEVICE_CHANGE_MASK_PROPS) {
+        changed = true;
+        const struct spa_dict_item *item = 0;
+        spa_dict_for_each(item, info->props) {
+            pipewire_object_update_property(device, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
+        }
+    }
+
+    if (changed) {
+        device->changed = true;
+        pipewire_synchronize();
     }
 }
 
@@ -582,7 +671,7 @@ internal Void pipewire_device_param(Void *data, S32 seq, U32 id, U32 index, U32 
 internal Void pipewire_link_info(Void *data, const struct pw_link_info *info) {
     Pipewire_Object *link = (Pipewire_Object *) data;
 
-    link->link_info = pw_link_info_update(link->link_info, info);
+    info = link->info = pw_link_info_update(link->info, info);
 
     if (info->change_mask & PW_LINK_CHANGE_MASK_PROPS) {
         const struct spa_dict_item *item = 0;
@@ -637,6 +726,8 @@ internal Void pipewire_registry_global(Void *data, U32 id, U32 permissions, cons
             //printf("  %s: %s\n", item->key, item->value);
         //}
     }
+
+    pipewire_synchronize();
 }
 
 internal Void pipewire_registry_global_remove(Void *data, U32 id) {
@@ -648,30 +739,20 @@ internal Void pipewire_registry_global_remove(Void *data, U32 id) {
 
 
 
-internal Void pipewire_core_roundtrip_done(Void *data, U32 id, S32 seq) {
-    Pipewire_Roundtrip *roundtrip = (Pipewire_Roundtrip *) data;
-    if (id == PW_ID_CORE && seq == roundtrip->pending) {
-        pw_main_loop_quit(roundtrip->loop);
+internal Void pipewire_core_done(Void *data, U32 id, S32 seq) {
+    if (id == PW_ID_CORE && seq == pipewire_state->core_sequence) {
+        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
+            object->changed = false;
+        }
+
+        pw_main_loop_quit(pipewire_state->loop);
     }
 }
 
 
 
-internal Void pipewire_roundtrip(struct pw_core *core, struct pw_main_loop *loop) {
-    Pipewire_Roundtrip roundtrip = { 0 };
-    struct spa_hook core_listener = { 0 };
-
-    pw_core_add_listener(core, &core_listener, &pipewire_core_roundtrip_events, &roundtrip);
-
-    roundtrip.loop    = loop;
-    roundtrip.pending = pw_core_sync(core, PW_ID_CORE, 0);
-
-    int error = pw_main_loop_run(loop);
-    if (error < 0) {
-        fprintf(stderr, "main_loop_run error: %d\n", error);
-    }
-
-    spa_hook_remove(&core_listener);
+internal Void pipewire_synchronize(Void) {
+    pipewire_state->core_sequence = pw_core_sync(pipewire_state->core, PW_ID_CORE, pipewire_state->core_sequence);
 }
 
 
@@ -688,17 +769,23 @@ internal Void pipewire_init(Void) {
     pipewire_state->core     = pw_context_connect(pipewire_state->context, 0, 0);
     pipewire_state->registry = pw_core_get_registry(pipewire_state->core, PW_VERSION_REGISTRY, 0);
     
+    pw_core_add_listener(pipewire_state->core, &pipewire_state->core_listener, &pipewire_core_roundtrip_events, 0);
     pw_registry_add_listener(pipewire_state->registry, &pipewire_state->registry_listener, &registry_events, 0);
 
-    // NOTE(simon): Register all globals.
-    pipewire_roundtrip(pipewire_state->core, pipewire_state->loop);
-
-    // NOTE(simon): Gather all events from the globals.
-    pipewire_roundtrip(pipewire_state->core, pipewire_state->loop);
+    pipewire_synchronize();
+    int error = pw_main_loop_run(pipewire_state->loop);
+    if (error < 0) {
+        fprintf(stderr, "main_loop_run error: %d\n", error);
+    }
 }
 
 internal Void pipewire_tick(Void) {
-    pipewire_roundtrip(pipewire_state->core, pipewire_state->loop);
+    pipewire_synchronize();
+
+    int error = pw_main_loop_run(pipewire_state->loop);
+    if (error < 0) {
+        fprintf(stderr, "main_loop_run error: %d\n", error);
+    }
 }
 
 internal Void pipewire_deinit(Void) {

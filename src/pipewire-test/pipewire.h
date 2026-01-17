@@ -50,7 +50,6 @@ struct Pipewire_Parameter {
     Pipewire_Parameter *next;
     Pipewire_Parameter *previous;
     U32 id;
-    S32 sequence;
     struct spa_pod *param;
 };
 
@@ -93,13 +92,10 @@ struct Pipewire_Object {
     struct spa_hook  listener;
 
     // NOTE(simon): Low-level data storage.
-    struct pw_module_info  *module_info;
-    struct pw_factory_info *factory_info;
-    struct pw_client_info  *client_info;
-    struct pw_node_info    *node_info;
-    struct pw_port_info    *port_info;
-    struct pw_device_info  *device_info;
-    struct pw_link_info    *link_info;
+    B32   changed;
+    Void *info;
+    U32   param_count;
+    struct spa_param_info *params;
 };
 
 global Pipewire_Object pipewire_nil_object = {
@@ -108,6 +104,17 @@ global Pipewire_Object pipewire_nil_object = {
     .last     = &pipewire_nil_object,
     .next     = &pipewire_nil_object,
     .previous = &pipewire_nil_object,
+};
+
+// TODO(simon): What is the maximum number of channels?
+typedef struct Pipewire_Volume Pipewire_Volume;
+struct Pipewire_Volume {
+    B32 mute;
+    U32 channel_count;
+    F32 channel_volumes[64];
+    U32 channel_map[64];
+    F32 volume_base;
+    F32 volume_step;
 };
 
 typedef struct Pipewire_State Pipewire_State;
@@ -124,6 +131,8 @@ struct Pipewire_State {
     struct pw_main_loop *loop;
     struct pw_context   *context;
     struct pw_core      *core;
+    struct spa_hook      core_listener;
+    S32                  core_sequence;
 
     struct pw_registry  *registry;
     struct spa_hook      registry_listener;
@@ -143,9 +152,9 @@ internal Pipewire_Property *pipewire_object_property_from_name(Pipewire_Object *
 internal Str8               pipewire_object_property_string_from_name(Pipewire_Object *object, Str8 name);
 internal U32                pipewire_object_property_u32_from_name(Pipewire_Object *object, Str8 name);
 
-internal B32                 pipewire_parameter_is_nil(Pipewire_Parameter *parameter);
-internal Void                pipewire_object_update_parameter(Pipewire_Object *object, S32 sequence, U32 id, struct spa_pod *param);
-internal Pipewire_Parameter *pipewire_object_parameter_from_id(Pipewire_Object *object, U32 id);
+internal B32  pipewire_parameter_is_nil(Pipewire_Parameter *parameter);
+internal Void pipewire_object_remove_parameter(Pipewire_Object *object, U32 id);
+internal Void pipewire_object_update_parameter(Pipewire_Object *object, S32 sequence, U32 id, struct spa_pod *param);
 
 internal U64             pipewire_chunk_index_from_size(U64 size);
 internal U8             *pipewire_allocate(U64 size);
@@ -163,7 +172,10 @@ internal Pipewire_Object *pipewire_object_from_id(U32 id);
 internal Void pipewire_link(Pipewire_Handle output, Pipewire_Handle input);
 internal Void pipewire_remove(Pipewire_Handle handle);
 
+internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object);
+
 internal Void pipewire_init(Void);
+internal Void pipewire_synchronize(Void);
 internal Void pipewire_tick(Void);
 internal Void pipewire_deinit(Void);
 
@@ -253,17 +265,11 @@ global const struct pw_registry_events registry_events = {
 
 
 
-typedef struct Pipewire_Roundtrip Pipewire_Roundtrip;
-struct Pipewire_Roundtrip {
-    S32                  pending;
-    struct pw_main_loop *loop;
-};
-
-internal Void pipewire_core_roundtrip_done(Void *data, U32 id, S32 seq);
+internal Void pipewire_core_done(Void *data, U32 id, S32 seq);
 
 global const struct pw_core_events pipewire_core_roundtrip_events = {
     PW_VERSION_CORE_EVENTS,
-    .done = pipewire_core_roundtrip_done,
+    .done = pipewire_core_done,
 };
 
 #endif // PIPEWIRE_INCLUDE_H
