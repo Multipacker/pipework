@@ -712,8 +712,6 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
         ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
     }
 
-    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
-
     // NOTE(simon): Collect pipewire objects.
     PropertyRow *rows = 0;
     S64 row_count = 0;
@@ -725,7 +723,6 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
             PropertyRow *row = arena_push_struct(scratch.arena, PropertyRow);
             row->reference = object;
             row->value = name_from_object(scratch.arena, row->reference);
-            row->value_matches = str8_fuzzy_match(scratch.arena, query, row->value);
 
             // NOTE(simon): Add generated row to output.
             sll_queue_push(first_row, last_row, row);
@@ -740,9 +737,10 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
     }
 
     // NOTE(simon): Filter
+    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
     for (S64 i = 0; i < row_count;) {
-        FuzzyMatchList label_matches = rows[i].label_matches;
-        FuzzyMatchList value_matches = rows[i].value_matches;
+        FuzzyMatchList label_matches = rows[i].label_matches = str8_fuzzy_match(scratch.arena, query, rows[i].label);
+        FuzzyMatchList value_matches = rows[i].value_matches = str8_fuzzy_match(scratch.arena, query, rows[i].value);
 
         B32 remove = false;
 
@@ -816,17 +814,14 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
         ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
     }
 
-    Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
-
-    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
-
     // NOTE(simon): Collect all properties.
     PropertyRow *rows = 0;
     S64 row_count = 0;
     {
+        Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
+
         PropertyRow *first_row = 0;
         PropertyRow *last_row  = 0;
-
         for (Pipewire_Property *property = selected_object->first_property; property; property = property->next) {
             PropertyRow *row = arena_push_struct(scratch.arena, PropertyRow);
             row->label = property->name;
@@ -855,9 +850,6 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
                 row->value = property->value;
             }
 
-            row->label_matches = str8_fuzzy_match(scratch.arena, query, row->label);
-            row->value_matches = str8_fuzzy_match(scratch.arena, query, row->value);
-
             // NOTE(simon): Add generated row to output.
             sll_queue_push(first_row, last_row, row);
             ++row_count;
@@ -871,9 +863,10 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     }
 
     // NOTE(simon): Filter
+    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
     for (S64 i = 0; i < row_count;) {
-        FuzzyMatchList label_matches = rows[i].label_matches;
-        FuzzyMatchList value_matches = rows[i].value_matches;
+        FuzzyMatchList label_matches = rows[i].label_matches = str8_fuzzy_match(scratch.arena, query, rows[i].label);
+        FuzzyMatchList value_matches = rows[i].value_matches = str8_fuzzy_match(scratch.arena, query, rows[i].value);
 
         B32 remove = false;
 
@@ -953,8 +946,6 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
         // NOTE(simon): Build rows.
         for (S64 i = visible_range.min; i < visible_range.max; ++i) {
             PropertyRow *row = &rows[i];
-
-            // NOTE(simon): Use heuristics to determine if the property is a reference to another object.
 
             ui_width(ui_size_parent_percent(1.0f, 1.0f))
             ui_row() {
