@@ -172,6 +172,8 @@ internal Pipewire_Object *pipewire_object_from_id(U32 id);
 internal Void pipewire_link(Pipewire_Handle output, Pipewire_Handle input);
 internal Void pipewire_remove(Pipewire_Handle handle);
 
+internal B32 pipewire_object_is_card(Pipewire_Object *object);
+
 internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object);
 
 internal Void pipewire_init(Void);

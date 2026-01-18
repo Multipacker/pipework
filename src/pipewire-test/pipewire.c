@@ -379,49 +379,111 @@ internal Void pipewire_remove(Pipewire_Handle handle) {
 
 
 
+internal B32 pipewire_object_is_card(Pipewire_Object *object) {
+    Str8 media_class = pipewire_object_property_string_from_name(object, str8_literal(PW_KEY_MEDIA_CLASS));
+    B32  result      = object->kind == Pipewire_Object_Device && str8_equal(media_class, str8_literal("Audio/Device"));
+    return result;
+}
+
+
+
+internal Void pipewire_parse_volume(struct spa_pod *props, Pipewire_Volume *volume) {
+    bool mute                  = volume->mute;
+    U32  channel_volumes_count = volume->channel_count;
+    U32  channel_map_count     = volume->channel_count;
+
+    struct spa_pod_prop *property = 0;
+    SPA_POD_OBJECT_FOREACH((struct spa_pod_object *) props, property) {
+        switch (property->key) {
+            case SPA_PROP_mute: {
+                spa_pod_get_bool(&property->value, &mute) >= 0;
+            } break;
+            case SPA_PROP_channelVolumes: {
+                channel_volumes_count = spa_pod_copy_array(&property->value, SPA_TYPE_Float, volume->channel_volumes, array_count(volume->channel_volumes));
+            } break;
+            case SPA_PROP_volumeBase: {
+                spa_pod_get_float(&property->value, &volume->volume_base) >= 0;
+            } break;
+            case SPA_PROP_volumeStep: {
+                spa_pod_get_float(&property->value, &volume->volume_step) >= 0;
+            } break;
+            case SPA_PROP_channelMap: {
+                channel_map_count = spa_pod_copy_array(&property->value, SPA_TYPE_Id, volume->channel_map, array_count(volume->channel_map));
+            } break;
+            //SPA_PROP_monitorMute,    SPA_POD_OPT_Bool(&monitor_mute),
+            //SPA_PROP_monitorVolumes, ,
+            //SPA_PROP_softMute,       SPA_POD_OPT_Bool(&soft_mute),
+            //SPA_PROP_softVolumes, ,
+            //SPA_PROP_volumeRampSamples, ,
+            //SPA_PROP_volumeRampStepSamples, ,
+            //SPA_PROP_volumeRampTime, ,
+            //SPA_PROP_volumeRampStepTime, ,
+            //SPA_PROP_volumeRampScale, ,
+        }
+    }
+
+    volume->mute          = mute;
+    volume->channel_count = u32_min(channel_volumes_count, channel_map_count);
+}
+
 internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object) {
     Pipewire_Volume volume = { 0 };
+    B32 has_volume = false;
 
-    bool mute = false;
-    U32 channel_volumes_count = 0;
-    U32 channel_map_count = 0;
+    // NOTE(simon): Query for card.
+    Pipewire_Object *card = &pipewire_nil_object;
+    Pipewire_Property *device_id_property = pipewire_object_property_from_name(object, str8_literal(PW_KEY_DEVICE_ID));
+    if (!pipewire_property_is_nil(device_id_property)) {
+        U32 device_id = (U32) u64_from_str8(device_id_property->value).value;
+        card = pipewire_object_from_id(device_id);
+        if (!pipewire_object_is_card(card)) {
+            card = &pipewire_nil_object;
+        }
+    }
 
-    for (Pipewire_Parameter *parameter = object->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
-        if (parameter->id == SPA_PARAM_Props) {
-            struct spa_pod_prop *property = 0;
-            SPA_POD_OBJECT_FOREACH((struct spa_pod_object *) parameter->param, property) {
-                switch (property->key) {
-                    case SPA_PROP_mute: {
-                        spa_pod_get_bool(&property->value, &mute) >= 0;
-                    } break;
-                    case SPA_PROP_channelVolumes: {
-                        channel_volumes_count = spa_pod_copy_array(&property->value, SPA_TYPE_Float, volume.channel_volumes, array_count(volume.channel_volumes));
-                    } break;
-                    case SPA_PROP_volumeBase: {
-                        spa_pod_get_float(&property->value, &volume.volume_base) >= 0;
-                    } break;
-                    case SPA_PROP_volumeStep: {
-                        spa_pod_get_float(&property->value, &volume.volume_step) >= 0;
-                    } break;
-                    case SPA_PROP_channelMap: {
-                        channel_map_count = spa_pod_copy_array(&property->value, SPA_TYPE_Id, volume.channel_map, array_count(volume.channel_map));
-                    } break;
-                    //SPA_PROP_monitorMute,    SPA_POD_OPT_Bool(&monitor_mute),
-                    //SPA_PROP_monitorVolumes, ,
-                    //SPA_PROP_softMute,       SPA_POD_OPT_Bool(&soft_mute),
-                    //SPA_PROP_softVolumes, ,
-                    //SPA_PROP_volumeRampSamples, ,
-                    //SPA_PROP_volumeRampStepSamples, ,
-                    //SPA_PROP_volumeRampTime, ,
-                    //SPA_PROP_volumeRampStepTime, ,
-                    //SPA_PROP_volumeRampScale, ,
-                }
+    // NOTE(simon): Query for card device volume.
+    Pipewire_Property *card_profile_device_property = pipewire_object_property_from_name(object, str8_literal("card.profile.device"));
+    if (!pipewire_property_is_nil(card_profile_device_property)) {
+        U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
+
+        for (Pipewire_Parameter *parameter = card->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
+            if (parameter->id != SPA_PARAM_Route) {
+                continue;
+            }
+
+            const struct spa_pod_prop *index_prop  = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_index);
+            const struct spa_pod_prop *device_prop = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_device);
+            const struct spa_pod_prop *props_prop  = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_props);
+
+            if (!index_prop || !device_prop) {
+                continue;
+            }
+
+            S32 route_index  = 0;
+            S32 route_device = 0;
+            spa_pod_get_int(&index_prop->value,  &route_index);
+            spa_pod_get_int(&device_prop->value, &route_device);
+
+            if ((U32) route_device != device) {
+                continue;
+            }
+
+            if (props_prop) {
+                pipewire_parse_volume((struct spa_pod *) &props_prop->value, &volume);
+                has_volume = true;
             }
         }
     }
 
-    volume.mute = mute;
-    volume.channel_count = u32_min(channel_volumes_count, channel_map_count);
+    // NOTE(simon): Query the node for volume.
+    if (!has_volume) {
+        for (Pipewire_Parameter *parameter = object->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
+            if (parameter->id == SPA_PARAM_Props) {
+                pipewire_parse_volume(parameter->param, &volume);
+                has_volume = true;
+            }
+        }
+    }
 
     return volume;
 }
