@@ -2235,19 +2235,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         }
 
         if (mute_input.flags & UI_InputFlag_LeftClicked || slider_input.flags & UI_InputFlag_LeftDragging) {
-            U8 buffer[4096];
-            struct spa_pod_builder builder = { 0 };
-            spa_pod_builder_init(&builder, buffer, sizeof(buffer));
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
-            struct spa_pod *pod = spa_pod_builder_add_object(
-                &builder,
-                SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
-                SPA_PROP_mute, SPA_POD_Bool(volume.mute),
-                SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
-            );
-#pragma clang diagnostic pop
-            pw_node_set_param((struct pw_node *) object->proxy, SPA_PARAM_Props, 0, pod);
+            pipewire_set_node_volume(object, volume);
         }
     }
 

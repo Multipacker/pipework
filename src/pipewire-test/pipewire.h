@@ -175,6 +175,7 @@ internal Void pipewire_remove(Pipewire_Handle handle);
 internal B32 pipewire_object_is_card(Pipewire_Object *object);
 
 internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object);
+internal Void            pipewire_set_node_volume(Pipewire_Object *object, Pipewire_Volume volume);
 
 internal Void pipewire_init(Void);
 internal Void pipewire_synchronize(Void);

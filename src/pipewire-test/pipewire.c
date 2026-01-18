@@ -488,6 +488,89 @@ internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object) {
     return volume;
 }
 
+internal Void pipewire_set_node_volume(Pipewire_Object *object, Pipewire_Volume volume) {
+    // NOTE(simon): Query for card.
+    Pipewire_Object *card = &pipewire_nil_object;
+    Pipewire_Property *device_id_property = pipewire_object_property_from_name(object, str8_literal(PW_KEY_DEVICE_ID));
+    if (!pipewire_property_is_nil(device_id_property)) {
+        U32 device_id = (U32) u64_from_str8(device_id_property->value).value;
+        card = pipewire_object_from_id(device_id);
+        if (!pipewire_object_is_card(card)) {
+            card = &pipewire_nil_object;
+        }
+    }
+
+    // NOTE(simon): Query for active card port.
+    U32 device_id  = SPA_ID_INVALID;
+    U32 port_index = SPA_ID_INVALID;
+    Pipewire_Property *card_profile_device_property = pipewire_object_property_from_name(object, str8_literal("card.profile.device"));
+    if (!pipewire_property_is_nil(card_profile_device_property)) {
+        U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
+
+        for (Pipewire_Parameter *parameter = card->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
+            if (parameter->id != SPA_PARAM_Route) {
+                continue;
+            }
+
+            const struct spa_pod_prop *index_prop  = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_index);
+            const struct spa_pod_prop *device_prop = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_device);
+
+            if (!index_prop || !device_prop) {
+                continue;
+            }
+
+            S32 route_index  = 0;
+            S32 route_device = 0;
+            spa_pod_get_int(&index_prop->value,  &route_index);
+            spa_pod_get_int(&device_prop->value, &route_device);
+
+            if ((U32) route_device == device) {
+                device_id  = (U32) route_device;
+                port_index = (U32) route_index;
+                break;
+            }
+        }
+    }
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+    U8 buffer[1024];
+    struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    if (device_id != SPA_ID_INVALID && port_index != SPA_ID_INVALID) {
+        struct spa_pod_frame frame = { 0 };
+        spa_pod_builder_push_object(
+            &builder, &frame,
+            SPA_TYPE_OBJECT_ParamRoute, SPA_PARAM_Route
+        );
+        spa_pod_builder_add(
+            &builder,
+            SPA_PARAM_ROUTE_index,  SPA_POD_Int(port_index),
+            SPA_PARAM_ROUTE_device, SPA_POD_Int(device_id),
+            SPA_PARAM_ROUTE_save,   SPA_POD_Bool(true),
+            0
+        );
+        spa_pod_builder_prop(&builder, SPA_PARAM_ROUTE_props, 0);
+        spa_pod_builder_add_object(
+            &builder,
+            SPA_TYPE_OBJECT_Props,   SPA_PARAM_Props,
+            SPA_PROP_mute,           SPA_POD_Bool(volume.mute),
+            SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
+        );
+        struct spa_pod *pod = spa_pod_builder_pop(&builder, &frame);
+
+        pw_device_set_param((struct pw_device *) card->proxy, SPA_PARAM_Route, 0, pod);
+    } else {
+        struct spa_pod *pod = spa_pod_builder_add_object(
+            &builder,
+            SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
+            SPA_PROP_mute, SPA_POD_Bool(volume.mute),
+            SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
+        );
+        pw_node_set_param((struct pw_node *) object->proxy, SPA_PARAM_Props, 0, pod);
+    }
+#pragma clang diagnostic pop
+}
+
 
 
 internal Void pipewire_module_info(Void *data, const struct pw_module_info *info) {
