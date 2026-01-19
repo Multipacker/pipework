@@ -128,6 +128,60 @@ internal COMPARE_FUNCTION(property_row_compare) {
     return result;
 }
 
+typedef struct VolumeRow VolumeRow;
+struct VolumeRow {
+    VolumeRow *next;
+    Str8             label;
+    FuzzyMatchList   label_matches;
+    Pipewire_Volume  volume;
+    Pipewire_Object *object;
+};
+
+internal COMPARE_FUNCTION(volume_row_compare) {
+    VolumeRow *a = (VolumeRow *) raw_a;
+    VolumeRow *b = (VolumeRow *) raw_b;
+
+    S64 result = 0;
+
+    // NOTE(simon): More matches mean make items appear earlier.
+    if (result == 0) {
+        if (a->label_matches.count > b->label_matches.count) {
+            result = -1;
+        } else if (a->label_matches.count < b->label_matches.count) {
+            result = 1;
+        }
+    }
+
+    // NOTE(simon): Earlier first matches make items appear earlier.
+    // TODO(simon): Maybe items with less space between matches should be
+    // earlier, or the ones were matches overall are earlier in the string.
+    if (result == 0) {
+        U64 a_first_fuzzy = U64_MAX;
+        for (FuzzyMatch *match = a->label_matches.first; match; match = match->next) {
+            a_first_fuzzy = u64_min(match->min, a_first_fuzzy);
+        }
+
+        U64 b_first_fuzzy = U64_MAX;
+        for (FuzzyMatch *match = b->label_matches.first; match; match = match->next) {
+            b_first_fuzzy = u64_min(match->min, b_first_fuzzy);
+        }
+
+        if (a_first_fuzzy < b_first_fuzzy) {
+            result = -1;
+        } else if (a_first_fuzzy > b_first_fuzzy) {
+            result = 1;
+        }
+    }
+
+    // NOTE(simon): Fallback on lexigraphical ordering.
+    if (result == 0) {
+        result = str8_compare_ascii(a->label, b->label);
+    }
+
+    return result;
+}
+
+
 
 
 // NOTE(simon): Themes.
@@ -1732,6 +1786,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                         UI_Palette palette = { 0 };
                         palette.background = color_from_port_media_type(child);
                         ui_palette_next(palette);
+                        ui_hover_cursor_next(Gfx_Cursor_Hand);
                         ui_fixed_x_next(local_position.x - port_radius);
                         ui_fixed_y_next(local_position.y - port_radius);
                         ui_width_next(ui_size_pixels(2.0f * port_radius, 1.0f));
@@ -1982,29 +2037,59 @@ internal UI_BOX_DRAW_FUNCTION(draw_display) {
     );
 }
 
+typedef struct DrawVolumeSlider DrawVolumeSlider;
+struct DrawVolumeSlider {
+    F32 min;
+    F32 base;
+    F32 norm;
+    F32 max;
+    F32 volume;
+};
+
 internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
-    V2F32 *draw_data = (V2F32 *) data;
+    DrawVolumeSlider *draw_data = (DrawVolumeSlider *) data;
 
-    F32 min    = 0.0f;
-    F32 norm   = 1.0f;
-    F32 max    = 2.0f;
-
-    F32 base   = draw_data->x;
-    F32 volume = draw_data->y;
+    F32 min    = draw_data->min;
+    F32 base   = draw_data->base;
+    F32 norm   = draw_data->norm;
+    F32 max    = draw_data->max;
+    F32 volume = draw_data->volume;
 
     V2F32 min_pos = box->calculated_rectangle.min;
-    F32 width  = box->calculated_size.width;
-    F32 height = box->calculated_size.height;
+    F32 width     = box->calculated_size.width;
+    F32 height    = box->calculated_size.height;
 
     F32 volume_pixels = (width - 40.0f) * (volume - min) / (max - min);
     F32 green_yellow_border_pixels = (width - 40.0f) * (base - min) / (max - min);
     F32 yellow_red_border_pixels   = (width - 40.0f) * (norm - min) / (max - min);
 
     F32 track_width = 3.0f;
+    F32 knob_height = box->calculated_size.height / 2.0f;
+
+    min_pos.y += height / 2.0f;
 
     // NOTE(simon): Track
     draw_rectangle(
-        r2f32(min_pos.x + 20.0f, min_pos.y + height / 2.0f - track_width, min_pos.x + width - 20.0f, min_pos.y + height / 2.0f + track_width),
+        r2f32(min_pos.x + 20.0f, min_pos.y - track_width, min_pos.x + width - 20.0f, min_pos.y + track_width),
+        color_from_theme(ThemeColor_DropShadow),
+        track_width,
+        0.0f,
+        1.0f
+    );
+
+    // NOTE(simon): Base marker
+    if (0.0f < base && base < norm) {
+        draw_rectangle(
+            r2f32(min_pos.x + 20.0f + green_yellow_border_pixels - track_width, min_pos.y - height / 2.0f, min_pos.x + 20.0f + green_yellow_border_pixels + track_width, min_pos.y + height / 2.0f),
+            color_from_theme(ThemeColor_DropShadow),
+            track_width,
+            0.0f,
+            1.0f
+        );
+    }
+    // NOTE(simon): 100% (0 dB) marker
+    draw_rectangle(
+        r2f32(min_pos.x + 20.0f + yellow_red_border_pixels - track_width, min_pos.y - height / 2.0f, min_pos.x + 20.0f + yellow_red_border_pixels + track_width, min_pos.y + height / 2.0f),
         color_from_theme(ThemeColor_DropShadow),
         track_width,
         0.0f,
@@ -2013,7 +2098,7 @@ internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
 
     // NOTE(simon): Volume indicator
     draw_rectangle(
-        r2f32(min_pos.x + 21.0f, min_pos.y + height / 2.0f - track_width + 1.0f, min_pos.x + 20.0f + volume_pixels, min_pos.y + height / 2.0f + track_width - 1.0f),
+        r2f32(min_pos.x + 21.0f, min_pos.y - track_width + 1.0f, min_pos.x + 20.0f + volume_pixels, min_pos.y + track_width - 1.0f),
         box->palette.cursor,
         track_width,
         0.0f,
@@ -2023,7 +2108,7 @@ internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
 
     // NOTE(simon): Knob
     draw_rectangle(
-        r2f32(min_pos.x + volume_pixels, min_pos.y, min_pos.x + volume_pixels + 40.0f, min_pos.y + height),
+        r2f32(min_pos.x + volume_pixels, min_pos.y - knob_height / 2.0f, min_pos.x + volume_pixels + 40.0f, min_pos.y + knob_height / 2.0f),
         color_from_theme(ThemeColor_ButtonBorder),
         2.0f,
         0.0f,
@@ -2032,7 +2117,7 @@ internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
 
     // NOTE(simon): Gradients.
     Render_Shape *upper = draw_rectangle(
-        r2f32(min_pos.x + volume_pixels, min_pos.y + 2.0f, min_pos.x + volume_pixels + 18.0f, min_pos.y + height - 2.0f),
+        r2f32(min_pos.x + volume_pixels, min_pos.y - knob_height / 2.0f + 2.0f, min_pos.x + volume_pixels + 18.0f, min_pos.y + knob_height / 2.0f - 2.0f),
         color_from_theme(ThemeColor_DropShadow),
         4.0f,
         0.0f,
@@ -2046,7 +2131,7 @@ internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
     upper->radies[Corner_10] = 0.0f;
 
     Render_Shape *lower = draw_rectangle(
-        r2f32(min_pos.x + volume_pixels + 22.0f, min_pos.y + 2.0f, min_pos.x + volume_pixels + 40.0f, min_pos.y + height - 2.0f),
+        r2f32(min_pos.x + volume_pixels + 22.0f, min_pos.y - knob_height / 2.0f + 2.0f, min_pos.x + volume_pixels + 40.0f, min_pos.y + knob_height / 2.0f - 2.0f),
         color_from_theme(ThemeColor_Hover),
         4.0f,
         0.0f,
@@ -2061,7 +2146,7 @@ internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
 
     // NOTE(simon): Middle line of knob.
     draw_rectangle(
-        r2f32(min_pos.x + volume_pixels + 19.0f, min_pos.y + 1.0f, min_pos.x + volume_pixels + 21.0f, min_pos.y + height - 1.0f),
+        r2f32(min_pos.x + volume_pixels + 19.0f, min_pos.y - knob_height / 2.0f + 1.0f, min_pos.x + volume_pixels + 21.0f, min_pos.y + knob_height / 2.0f - 1.0f),
         box->palette.border,
         0.0f,
         0.0f,
@@ -2070,12 +2155,12 @@ internal UI_BOX_DRAW_FUNCTION(draw_volume_slider) {
 }
 
 internal UI_Input volume_slider(F32 base, F32 *value, UI_Key key) {
-    ui_height_push(ui_size_ems(1.5f, 1.0f));
+    ui_height_push(ui_size_ems(3.0f, 1.0f));
     F32 min  = 0.0f;
     F32 norm = 1.0f;
-    F32 max  = 2.0f;
+    F32 max  = 1.5f;
 
-    V2F32 *draw_data = arena_push_struct(ui_frame_arena(), V2F32);
+    DrawVolumeSlider *draw_data = arena_push_struct(ui_frame_arena(), DrawVolumeSlider);
     ui_draw_data_next(draw_data);
     ui_draw_function_next(draw_volume_slider);
     ui_hover_cursor_next(Gfx_Cursor_SizeWE);
@@ -2102,10 +2187,23 @@ internal UI_Input volume_slider(F32 base, F32 *value, UI_Key key) {
         F32 percentage_post_drag    = pixels_post_drag / r2f32_size(box->calculated_rectangle).width;
         F32 value_post_drag         = min + (percentage_post_drag) * (max - min);
         F32 clamped_value_post_drag = f32_min(f32_max(min, value_post_drag), max);
+
+        F32 clamps[2] = { norm, base };
+        U32 clamp_count = 0.0f < base && base < norm ? 2 : 1;
+        for (U32 i = 0; i < clamp_count; ++i) {
+            if (f32_abs(clamped_value_post_drag - clamps[i]) < 0.01f) {
+                clamped_value_post_drag = clamps[i];
+            }
+        }
+
         *value = clamped_value_post_drag;
     }
 
-    *draw_data = v2f32(base, *value);
+    draw_data->min    = min;
+    draw_data->base   = base;
+    draw_data->norm   = norm;
+    draw_data->max    = max;
+    draw_data->volume = *value;
 
     ui_height_pop();
     return input;
@@ -2164,78 +2262,141 @@ internal UI_Input light_toggle_b32(B32 *is_checked, Str8 label, UI_Key key) {
 internal BUILD_TAB_FUNCTION(build_volume_tab) {
     Arena_Temporary scratch = arena_get_scratch(0, 0);
 
-    // NOTE(simon): Collect pipewire objects.
-    S64 object_count = { 0 };
-    Pipewire_Object **objects = 0;
+    typedef struct TabState TabState;
+    struct TabState {
+        U8  query_buffer[1024];
+        U64 query_mark;
+        U64 query_cursor;
+        U64 query_size;
+    };
+
+    TabState *tab_state = tab_state_from_type(TabState);
+
+    V2F32 tab_size   = r2f32_size(tab_rectangle);
+    F32   row_height = 2.0f * (F32) ui_font_size_top();
+
+    ui_focus(UI_Focus_Active)
+    ui_width(ui_size_ems(15.0f, 1.0f))
+    ui_height(ui_size_pixels(row_height, 1.0f))
+    ui_text_x_padding(5.0f) {
+        ui_fixed_position_next(v2f32(0.0f, tab_size.height - row_height));
+        ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
+    }
+
+    // NOTE(simon): Collect nodes with volume.
+    VolumeRow *rows = 0;
+    S64 row_count = 0;
     {
+        VolumeRow *first_row = 0;
+        VolumeRow *last_row  = 0;
         for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-            ++object_count;
+            if (object->kind != Pipewire_Object_Node) {
+                continue;
+            }
+
+            Pipewire_Volume volume = pipewire_volume_from_node(object);
+            if (volume.channel_count == 0) {
+                continue;
+            }
+
+            VolumeRow *row = arena_push_struct(scratch.arena, VolumeRow);
+            row->label  = name_from_object(scratch.arena, object);
+            row->volume = volume;
+            row->object = object;
+
+            sll_queue_push(first_row, last_row, row);
+            ++row_count;
         }
 
-        objects = arena_push_array_no_zero(scratch.arena, Pipewire_Object *, (U64) object_count);
-        Pipewire_Object **object_ptr = objects;
-        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-            *object_ptr = object;
-            ++object_ptr;
+        // NOTE(simon): Flatten generated rows to array.
+        rows = arena_push_array(frame_arena(), VolumeRow, (U64) row_count);
+        for (VolumeRow *row = first_row, *row_ptr = rows; row; row = row->next) {
+            *row_ptr++ = *row;
         }
     }
+
+    // NOTE(simon): Filter
+    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
+    for (S64 i = 0; i < row_count;) {
+        FuzzyMatchList label_matches = rows[i].label_matches = str8_fuzzy_match(scratch.arena, query, rows[i].label);
+
+        B32 remove = false;
+
+        // NOTE(simon): If there are search terms and no matches, remove the item.
+        remove |= label_matches.needle_parts && !label_matches.count;
+
+        // NOTE(simon): If the number of mathes doesn't match the
+        // number of search terms, remove the item.
+        remove |= label_matches.needle_parts != label_matches.count;
+
+        if (remove) {
+            swap(rows[i], rows[row_count - 1], VolumeRow);
+            --row_count;
+        } else {
+            ++i;
+        }
+    }
+
+    quicksort(rows, (U64) row_count, volume_row_compare);
 
     ui_width(ui_size_fill())
     ui_height(ui_size_fill())
     ui_column()
     ui_width(ui_size_text_content(0.0f, 1.0f))
     ui_height(ui_size_text_content(0.0f, 1.0f))
-    for (S64 i = 0; i < object_count; ++i) {
-        Pipewire_Object *object = objects[i];
-        if (object->kind != Pipewire_Object_Node) {
-            continue;
-        }
+    for (S64 i = 0; i < row_count; ++i) {
+        VolumeRow *row = &rows[i];
 
-        Pipewire_Volume volume = pipewire_volume_from_node(object);
-
-        Str8 name = name_from_object(frame_arena(), object);
         UI_Input slider_input = { 0 };
         UI_Input mute_input   = { 0 };
 
         // NOTE(simon): Determine collective volume for all channels by
         // computing them max.
         F32 combined_volume = 0.0f;
-        for (U32 j = 0; j < volume.channel_count; ++j) {
-            combined_volume = f32_max(combined_volume, volume.channel_volumes[j]);
+        for (U32 j = 0; j < row->volume.channel_count; ++j) {
+            combined_volume = f32_max(combined_volume, row->volume.channel_volumes[j]);
         }
 
         // NOTE(simon): Use the same "linearization" as PulseAudio.
         F32 linear = f32_cbrt(combined_volume);
+        F32 linear_base = f32_cbrt(row->volume.volume_base);
 
-        ui_label_format("%.*s, %.0f%%", str8_expand(name), 100.0f * linear);
+        ui_text_x_padding_next(5.0f);
+        UI_Box *label = ui_label(row->label);
+        ui_box_set_fuzzy_match_list(label, row->label_matches);
+
+        ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+
         ui_width(ui_size_children_sum(1.0f))
-        ui_height(ui_size_children_sum(1.0f))
+        ui_height(ui_size_ems(3.0f, 1.0f))
         ui_row() {
             ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
 
-            mute_input = light_toggle_b32(&volume.mute, str8_literal("Mute"), ui_key_from_string_format(ui_active_seed_key(), "%p_mute", object));
+            mute_input = light_toggle_b32(&row->volume.mute, str8_literal("Mute"), ui_key_from_string_format(ui_active_seed_key(), "%p_mute", row->object));
 
             ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
 
-            UI_Key channel_key = ui_key_from_string_format(ui_active_seed_key(), "%p_volume", object);
-            ui_width_next(ui_size_ems(20.0f, 1.0f));
-            slider_input = volume_slider(volume.volume_base, &linear, channel_key);
+            UI_Key channel_key = ui_key_from_string_format(ui_active_seed_key(), "%p_volume", row->object);
+            ui_width_next(ui_size_fill());
+            slider_input = volume_slider(linear_base, &linear, channel_key);
 
             // NOTE(simon): "Delinearize" as PulseAudio after modification.
             combined_volume = linear * linear * linear;
 
             F32 db = 20.0f * f32_ln(combined_volume) / f32_ln(10.0f);
-            ui_width_next(ui_size_text_content(0.0f, 1.0f));
-            ui_label_format("%.2f dB", db);
+            ui_text_align_next(UI_TextAlign_Right);
+            ui_width_next(ui_size_ems(8.0f, 1.0f));
+            ui_label_format("%.0f%% (%.2f dB)", 100.0f * linear, db);
+            ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
         }
 
         // NOTE(simon): Distribute the new volume across the channels.
-        for (U32 j = 0; j < volume.channel_count; ++j) {
-            volume.channel_volumes[j] = combined_volume;
+        for (U32 j = 0; j < row->volume.channel_count; ++j) {
+            row->volume.channel_volumes[j] = combined_volume;
         }
 
         if (mute_input.flags & UI_InputFlag_LeftClicked || slider_input.flags & UI_InputFlag_LeftDragging) {
-            pipewire_set_node_volume(object, volume);
+            pipewire_set_node_volume(row->object, row->volume);
         }
     }
 
