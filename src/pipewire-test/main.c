@@ -125,32 +125,29 @@ internal S32 os_run(Str8List arguments) {
 
     Window *window = create_window(str8_literal("Pipewire-test"), 1280, 720);
     Panel *left   = create_panel();
-    Panel *middle = create_panel();
     Panel *right  = create_panel();
-    left->percentage_of_parent   = 0.2f;
-    middle->percentage_of_parent = 0.6f;
-    right->percentage_of_parent  = 0.2f;
+    left->percentage_of_parent   = 0.7f;
+    right->percentage_of_parent  = 0.3f;
     insert_panel(window->root_panel, &nil_panel, left);
-    insert_panel(window->root_panel, left, middle);
-    insert_panel(window->root_panel, middle, right);
+    insert_panel(window->root_panel, left, right);
 
-    Tab *tab0 = create_tab(str8_literal("Object list"));
-    Tab *tab1 = create_tab(str8_literal("Graph"));
-    Tab *tab2 = create_tab(str8_literal("Properties"));
-    Tab *tab3 = create_tab(str8_literal("Parameters"));
-    Tab *tab4 = create_tab(str8_literal("Volume"));
-    tab0->build = build_list_tab;
-    tab1->build = build_graph_tab;
-    tab2->build = build_property_tab;
-    tab3->build = build_parameter_tab;
-    tab4->build = build_volume_tab;
-    insert_tab(left,   &nil_tab, tab0);
-    insert_tab(middle, &nil_tab, tab1);
-    insert_tab(right,  &nil_tab, tab2);
-    insert_tab(right,  tab2,     tab3);
-    insert_tab(right,  tab3,     tab4);
+    Tab *tab_list       = create_tab(str8_literal("Object list"));
+    Tab *tab_graph      = create_tab(str8_literal("Graph"));
+    Tab *tab_properties = create_tab(str8_literal("Properties"));
+    Tab *tab_parameters = create_tab(str8_literal("Parameters"));
+    Tab *tab_volume     = create_tab(str8_literal("Volume"));
+    tab_list->build       = build_list_tab;
+    tab_graph->build      = build_graph_tab;
+    tab_properties->build = build_property_tab;
+    tab_parameters->build = build_parameter_tab;
+    tab_volume->build     = build_volume_tab;
+    insert_tab(left,   &nil_tab,       tab_properties);
+    insert_tab(left,   tab_properties, tab_parameters);
+    insert_tab(left,  tab_parameters, tab_graph);
+    insert_tab(right,  &nil_tab,       tab_list);
+    insert_tab(right,  tab_list,       tab_volume);
 
-    window->active_panel = handle_from_panel(middle);
+    window->active_panel = handle_from_panel(left);
 
     font_cache_create();
     gfx_set_update_function(update);
