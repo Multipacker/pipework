@@ -2264,6 +2264,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
 
     typedef struct TabState TabState;
     struct TabState {
+        UI_ScrollPosition scroll_position;
         U8  query_buffer[1024];
         U64 query_mark;
         U64 query_cursor;
@@ -2273,13 +2274,13 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
     TabState *tab_state = tab_state_from_type(TabState);
 
     V2F32 tab_size   = r2f32_size(tab_rectangle);
-    F32   row_height = 2.0f * (F32) ui_font_size_top();
+    F32   query_height = 2.0f * (F32) ui_font_size_top();
 
     ui_focus(UI_Focus_Active)
     ui_width(ui_size_ems(15.0f, 1.0f))
-    ui_height(ui_size_pixels(row_height, 1.0f))
+    ui_height(ui_size_pixels(query_height, 1.0f))
     ui_text_x_padding(5.0f) {
-        ui_fixed_position_next(v2f32(0.0f, tab_size.height - row_height));
+        ui_fixed_position_next(v2f32(0.0f, tab_size.height - query_height));
         ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
     }
 
@@ -2339,16 +2340,14 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
 
     quicksort(rows, (U64) row_count, volume_row_compare);
 
-    ui_width(ui_size_fill())
-    ui_height(ui_size_fill())
-    ui_column()
-    ui_width(ui_size_text_content(0.0f, 1.0f))
-    ui_height(ui_size_text_content(0.0f, 1.0f))
-    for (S64 i = 0; i < row_count; ++i) {
-        VolumeRow *row = &rows[i];
+    F32 row_height = 6.0f * (F32) ui_font_size_top();
 
-        UI_Input slider_input = { 0 };
-        UI_Input mute_input   = { 0 };
+    R1S64 visible_range = { 0 };
+    ui_palette(palette_from_theme(ThemePalette_Button))
+    ui_scroll_region(tab_size, row_height, row_count, &visible_range, 0, &tab_state->scroll_position)
+    ui_palette(palette_from_theme(ThemePalette_Base))
+    for (S64 i = visible_range.min; i < visible_range.max; ++i) {
+        VolumeRow *row = &rows[i];
 
         // NOTE(simon): Determine collective volume for all channels by
         // computing them max.
@@ -2361,33 +2360,43 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         F32 linear = f32_cbrt(combined_volume);
         F32 linear_base = f32_cbrt(row->volume.volume_base);
 
-        ui_text_x_padding_next(5.0f);
-        UI_Box *label = ui_label(row->label);
-        ui_box_set_fuzzy_match_list(label, row->label_matches);
+        UI_Input slider_input = { 0 };
+        UI_Input mute_input   = { 0 };
 
-        ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+        ui_extra_box_flags_next(UI_BoxFlag_DrawBorder);
+        ui_width(ui_size_fill())
+        ui_row()
+        ui_padding(ui_size_ems(0.5f, 1.0f))
+        ui_height(ui_size_fill())
+        ui_column()
+        ui_padding(ui_size_ems(0.5f, 1.0f))
+        ui_width(ui_size_text_content(0.0f, 1.0f))
+        ui_height(ui_size_text_content(0.0f, 1.0f)) {
+            ui_height_next(ui_size_ems(1.5f, 1.0f));
+            UI_Box *label = ui_label(row->label);
+            ui_box_set_fuzzy_match_list(label, row->label_matches);
 
-        ui_width(ui_size_children_sum(1.0f))
-        ui_height(ui_size_ems(3.0f, 1.0f))
-        ui_row() {
             ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
 
-            mute_input = light_toggle_b32(&row->volume.mute, str8_literal("Mute"), ui_key_from_string_format(ui_active_seed_key(), "%p_mute", row->object));
+            ui_width(ui_size_children_sum(1.0f))
+            ui_height(ui_size_ems(3.0f, 1.0f))
+            ui_row() {
+                mute_input = light_toggle_b32(&row->volume.mute, str8_literal("Mute"), ui_key_from_string_format(ui_active_seed_key(), "%p_mute", row->object));
 
-            ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+                ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
 
-            UI_Key channel_key = ui_key_from_string_format(ui_active_seed_key(), "%p_volume", row->object);
-            ui_width_next(ui_size_fill());
-            slider_input = volume_slider(linear_base, &linear, channel_key);
+                UI_Key channel_key = ui_key_from_string_format(ui_active_seed_key(), "%p_volume", row->object);
+                ui_width_next(ui_size_fill());
+                slider_input = volume_slider(linear_base, &linear, channel_key);
 
-            // NOTE(simon): "Delinearize" as PulseAudio after modification.
-            combined_volume = linear * linear * linear;
+                // NOTE(simon): "Delinearize" as PulseAudio after modification.
+                combined_volume = linear * linear * linear;
 
-            F32 db = 20.0f * f32_ln(combined_volume) / f32_ln(10.0f);
-            ui_text_align_next(UI_TextAlign_Right);
-            ui_width_next(ui_size_ems(8.0f, 1.0f));
-            ui_label_format("%.0f%% (%.2f dB)", 100.0f * linear, db);
-            ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+                F32 db = 20.0f * f32_ln(combined_volume) / f32_ln(10.0f);
+                ui_text_align_next(UI_TextAlign_Right);
+                ui_width_next(ui_size_ems(8.0f, 1.0f));
+                ui_label_format("%.0f%% (%.2f dB)", 100.0f * linear, db);
+            }
         }
 
         // NOTE(simon): Distribute the new volume across the channels.
