@@ -1703,18 +1703,29 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                 ui_palette_next(palette);
             }
 
+            FuzzyMatchList node_name_matches = str8_fuzzy_match(frame_arena(), query_from_tab(), node_name);
+            B32 filter_out = false;
+
+            // NOTE(simon): If there are search terms and no matches, remove the item.
+            filter_out |= node_name_matches.needle_parts && !node_name_matches.count;
+
+            // NOTE(simon): If the number of mathes doesn't match the
+            // number of search terms, remove the item.
+            filter_out |= node_name_matches.needle_parts != node_name_matches.count;
+
             // NOTE(simon): Build node.
             ui_corner_radius_next(5.0f);
             ui_fixed_position_next(v2f32_subtract(graph_node->position, tab_state->graph_offset));
             ui_width_next(ui_size_pixels(node_width, 1.0f));
             ui_height_next(ui_size_pixels(node_height, 1.0f));
             ui_layout_axis_next(Axis2_Y);
-            UI_Box *node_box = ui_create_box_from_string_format(UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawDropShadow | UI_BoxFlag_Clickable, "###node_%u", node->id);
+            UI_Box *node_box = ui_create_box_from_string_format(UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawDropShadow | UI_BoxFlag_Clickable | (filter_out ? UI_BoxFlag_Disabled : 0), "###node_%u", node->id);
             ui_parent(node_box)
             ui_width(ui_size_fill())
             ui_height(ui_size_pixels(row_height, 1.0f)) {
                 ui_text_align_next(UI_TextAlign_Center);
-                ui_label(name_from_object(frame_arena(), node));
+                UI_Box *node_name_box = ui_label(node_name);
+                ui_box_set_fuzzy_match_list(node_name_box, node_name_matches);
 
                 // NOTE(simon): Build port columns.
                 UI_Box *input_column  = &global_ui_null_box;
