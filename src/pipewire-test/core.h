@@ -133,6 +133,12 @@ struct Tab {
     Str8   name;
     Void  *state;
     BuildTabFunction *build;
+
+    B32 query_open;
+    U8  query_buffer[1024];
+    U64 query_mark;
+    U64 query_cursor;
+    U64 query_size;
 };
 
 global Tab nil_tab = {
@@ -281,7 +287,9 @@ struct Context {
     X(Paste,                "Paste",                       "Pastes the current clipboard contents")                        \
     X(Cut,                  "Cut",                         "Copies the current selection to the clipboard and deletes it") \
     X(Accept,               "Accept",                      "Accepts the current action")                                   \
-    X(Cancel,               "Cancel",                      "Cancles the current action")
+    X(Cancel,               "Cancel",                      "Cancles the current action")                                   \
+    X(OpenSearch,           "Open search",                 "Open the search field for the current tab")                    \
+    X(CloseSearch,          "Close search",                "Close the search field for the current tab")
 
 typedef enum {
     CommandKind_Null,
@@ -386,6 +394,7 @@ internal Tab  *create_tab(Str8 title);
 internal Void  destroy_tab(Tab *tab);
 #define tab_state_from_type(type) ((type *) tab_state_from_size_alignment(sizeof(type), _Alignof(type)))
 internal Void *tab_state_from_size_alignment(U64 size, U64 alignment);
+internal Str8  query_from_tab(Void);
 
 // NOTE(simon): Panels.
 

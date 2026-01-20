@@ -320,6 +320,12 @@ internal Void *tab_state_from_size_alignment(U64 size, U64 alignment) {
     return tab_state;
 }
 
+internal Str8 query_from_tab(Void) {
+    Tab *tab    = tab_from_handle(top_context()->tab);
+    Str8 result = str8(tab->query_buffer, tab->query_size);
+    return result;
+}
+
 
 
 
@@ -747,24 +753,9 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
     typedef struct TabState TabState;
     struct TabState {
         UI_ScrollPosition all_objects_scroll_position;
-        U8  query_buffer[1024];
-        U64 query_mark;
-        U64 query_cursor;
-        U64 query_size;
     };
 
     TabState *tab_state = tab_state_from_type(TabState);
-
-    V2F32 tab_size   = r2f32_size(tab_rectangle);
-    F32   row_height = 2.0f * (F32) ui_font_size_top();
-
-    ui_focus(UI_Focus_Active)
-    ui_width(ui_size_ems(15.0f, 1.0f))
-    ui_height(ui_size_pixels(row_height, 1.0f))
-    ui_text_x_padding(5.0f) {
-        ui_fixed_position_next(v2f32(0.0f, tab_size.height - row_height));
-        ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
-    }
 
     // NOTE(simon): Collect pipewire objects.
     PropertyRow *rows = 0;
@@ -791,7 +782,7 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
     }
 
     // NOTE(simon): Filter
-    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
+    Str8 query = query_from_tab();
     for (S64 i = 0; i < row_count;) {
         FuzzyMatchList label_matches = rows[i].label_matches = str8_fuzzy_match(scratch.arena, query, rows[i].label);
         FuzzyMatchList value_matches = rows[i].value_matches = str8_fuzzy_match(scratch.arena, query, rows[i].value);
@@ -819,6 +810,9 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
 
     quicksort(rows, (U64) row_count, property_row_compare);
 
+    V2F32 tab_size   = r2f32_size(tab_rectangle);
+    F32   row_height = 2.0f * (F32) ui_font_size_top();
+
     // NOTE(simon): Build list of all objects.
     R1S64 visible_range = { 0 };
     ui_palette(palette_from_theme(ThemePalette_Button))
@@ -843,10 +837,6 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     struct TabState {
         UI_ScrollPosition scroll_position;
         F32 column_widths[2];
-        U8  query_buffer[1024];
-        U64 query_mark;
-        U64 query_cursor;
-        U64 query_size;
     };
 
     B32 is_new_tab = !tab_from_handle(top_context()->tab)->state;
@@ -855,17 +845,6 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     if (is_new_tab) {
         tab_state->column_widths[0] = 1.0f / 2.0f;
         tab_state->column_widths[1] = 1.0f / 2.0f;
-    }
-
-    V2F32 tab_size   = r2f32_size(tab_rectangle);
-    F32   row_height = 2.0f * (F32) ui_font_size_top();
-
-    ui_focus(UI_Focus_Active)
-    ui_width(ui_size_ems(15.0f, 1.0f))
-    ui_height(ui_size_pixels(row_height, 1.0f))
-    ui_text_x_padding(5.0f) {
-        ui_fixed_position_next(v2f32(0.0f, tab_size.height - row_height));
-        ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
     }
 
     // NOTE(simon): Collect all properties.
@@ -917,7 +896,7 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     }
 
     // NOTE(simon): Filter
-    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
+    Str8 query = query_from_tab();
     for (S64 i = 0; i < row_count;) {
         FuzzyMatchList label_matches = rows[i].label_matches = str8_fuzzy_match(scratch.arena, query, rows[i].label);
         FuzzyMatchList value_matches = rows[i].value_matches = str8_fuzzy_match(scratch.arena, query, rows[i].value);
@@ -944,6 +923,9 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     }
 
     quicksort(rows, (U64) row_count, property_row_compare);
+
+    V2F32 tab_size   = r2f32_size(tab_rectangle);
+    F32   row_height = 2.0f * (F32) ui_font_size_top();
 
     R1S64 visible_range = { 0 };
     ui_palette(palette_from_theme(ThemePalette_Button))
@@ -2265,24 +2247,9 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
     typedef struct TabState TabState;
     struct TabState {
         UI_ScrollPosition scroll_position;
-        U8  query_buffer[1024];
-        U64 query_mark;
-        U64 query_cursor;
-        U64 query_size;
     };
 
     TabState *tab_state = tab_state_from_type(TabState);
-
-    V2F32 tab_size   = r2f32_size(tab_rectangle);
-    F32   query_height = 2.0f * (F32) ui_font_size_top();
-
-    ui_focus(UI_Focus_Active)
-    ui_width(ui_size_ems(15.0f, 1.0f))
-    ui_height(ui_size_pixels(query_height, 1.0f))
-    ui_text_x_padding(5.0f) {
-        ui_fixed_position_next(v2f32(0.0f, tab_size.height - query_height));
-        ui_line_edit(tab_state->query_buffer, &tab_state->query_size, array_count(tab_state->query_buffer), &tab_state->query_cursor, &tab_state->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
-    }
 
     // NOTE(simon): Collect nodes with volume.
     VolumeRow *rows = 0;
@@ -2317,7 +2284,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
     }
 
     // NOTE(simon): Filter
-    Str8 query = str8(tab_state->query_buffer, tab_state->query_size);
+    Str8 query = query_from_tab();
     for (S64 i = 0; i < row_count;) {
         FuzzyMatchList label_matches = rows[i].label_matches = str8_fuzzy_match(scratch.arena, query, rows[i].label);
 
@@ -2340,7 +2307,8 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
 
     quicksort(rows, (U64) row_count, volume_row_compare);
 
-    F32 row_height = 6.0f * (F32) ui_font_size_top();
+    V2F32 tab_size   = r2f32_size(tab_rectangle);
+    F32   row_height = 6.0f * (F32) ui_font_size_top();
 
     R1S64 visible_range = { 0 };
     ui_palette(palette_from_theme(ThemePalette_Button))
@@ -2488,6 +2456,7 @@ internal Void update(Void) {
         { Gfx_Key_X,         Gfx_KeyModifier_Control,                         CommandKind_Cut,                  },
         { Gfx_Key_Return,    0,                                               CommandKind_Accept,               },
         { Gfx_Key_Escape,    0,                                               CommandKind_Cancel,               },
+        { Gfx_Key_F,         Gfx_KeyModifier_Control,                         CommandKind_OpenSearch,           },
     };
 
     for (Gfx_Event *event = graphics_events.first, *next = 0; event; event = next) {
@@ -3119,6 +3088,19 @@ internal Void update(Void) {
                     ui_event = arena_push_struct(ui_frame_arena(), UI_Event);
                     ui_event->kind = UI_EventKind_Cancel;
                 } break;
+                case CommandKind_OpenSearch: {
+                    Tab *tab = tab_from_handle(top_context()->tab);
+                    if (!is_nil_tab(tab)) {
+                        tab->query_open = true;
+                    }
+                } break;
+                case CommandKind_CloseSearch: {
+                    Tab *tab = tab_from_handle(top_context()->tab);
+                    if (!is_nil_tab(tab)) {
+                        tab->query_open = false;
+                        tab->query_size = 0;
+                    }
+                } break;
                 case CommandKind_COUNT: {
                 } break;
             }
@@ -3746,6 +3728,25 @@ internal Void update(Void) {
 
             ui_parent(content_box) {
                 Tab *tab = tab_from_handle(panel->active_tab);
+
+                V2F32 panel_content_size = r2f32_size(panel_content_rectangle);
+                F32   query_height       = 2.0f * (F32) ui_font_size_top();
+
+                // TODO(simon): We should animate opening and closing the query.
+                if (tab->query_open) {
+                    ui_focus(UI_Focus_Active)
+                    ui_width(ui_size_ems(15.0f, 1.0f))
+                    ui_height(ui_size_pixels(query_height, 1.0f))
+                    ui_text_x_padding(5.0f) {
+                        if (ui_is_focus_active() && ui_consume_event_kind(UI_EventKind_Cancel)) {
+                            push_command(CommandKind_CloseSearch);
+                        }
+
+                        ui_fixed_position_next(v2f32(0.0f, panel_content_size.height - query_height));
+                        ui_line_edit(tab->query_buffer, &tab->query_size, array_count(tab->query_buffer), &tab->query_cursor, &tab->query_mark, ui_key_from_string(ui_active_seed_key(), str8_literal("###query")));
+                    }
+                }
+
                 tab->build(panel_content_rectangle);
             }
 
