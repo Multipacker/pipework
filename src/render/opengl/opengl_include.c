@@ -236,6 +236,10 @@ internal B32 render_init(Void) {
     return false;
 }
 
+internal Void render_deinit(Void) {
+    opengl_backend_deinit();
+}
+
 
 
 internal Void render_begin(Void) {

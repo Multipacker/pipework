@@ -83,6 +83,7 @@ struct Render_Window {
 internal Render_Shape *render_shape_list_push(Arena *arena, Render_ShapeList *shapes);
 
 internal B32  render_init(Void);
+internal Void render_deinit(Void);
 internal Void render_begin(Void);
 internal Void render_end(Void);
 

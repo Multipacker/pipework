@@ -91,6 +91,14 @@ internal B32 opengl_backend_init(Void) {
     return true;
 }
 
+internal Void opengl_backend_deinit(Void) {
+    Wayland_OpenGLState *opengl_state = &global_wayland_opengl_state;
+
+    eglMakeCurrent(opengl_state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    eglTerminate(opengl_state->display);
+    eglReleaseThread();
+}
+
 internal Render_Window opengl_backend_create(Gfx_Window handle) {
     Wayland_OpenGLState *opengl_state = &global_wayland_opengl_state;
     Wayland_Window *graphics_window = wayland_window_from_handle(handle);

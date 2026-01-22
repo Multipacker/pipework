@@ -51,7 +51,6 @@ internal B32 opengl_backend_init(Void) {
         EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
         EGL_NONE,
     };
-
     opengl_state->context = eglCreateContext(opengl_state->display, 0, EGL_NO_CONTEXT, context_attributes);
     if (opengl_state->context == EGL_NO_CONTEXT) {
         gfx_message(true, str8_literal("Failed to initialize OpenGL"), str8_literal("Could not create a context."));
@@ -66,6 +65,14 @@ internal B32 opengl_backend_init(Void) {
 #undef X
 
     return true;
+}
+
+internal Void opengl_backend_deinit(Void) {
+    X11_OpenGLState *opengl_state = &global_x11_opengl_state;
+
+    eglMakeCurrent(opengl_state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    eglTerminate(opengl_state->display);
+    eglReleaseThread();
 }
 
 internal Render_Window opengl_backend_create(Gfx_Window handle) {
@@ -153,7 +160,7 @@ internal Void opengl_window_select(Gfx_Window graphics_handle, Render_Window ren
 
     // NOTE(simon): This doesn't automatically get set if our first
     // eglMakeCurrent doesn't have a default framebuffer. On my desktop using
-    // xwayland, I get a black screen if I don't run this with a surface bound.
+    // Xwayland, I get a black screen if I don't run this with a surface bound.
     glDrawBuffer(GL_BACK);
 }
 

@@ -160,5 +160,7 @@ internal S32 os_run(Str8List arguments) {
 
     pipewire_deinit();
 
+    render_deinit();
+
     return 0;
 }
