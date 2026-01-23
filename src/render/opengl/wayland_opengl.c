@@ -38,19 +38,6 @@ internal B32 opengl_backend_init(Void) {
         os_exit(1);
     }
 
-    // NOTE(simon): Create context.
-    EGLint context_attributes[] = {
-        EGL_CONTEXT_MAJOR_VERSION, 3,
-        EGL_CONTEXT_MINOR_VERSION, 3,
-        EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
-        EGL_NONE,
-    };
-    opengl_state->context = eglCreateContext(opengl_state->display, 0, EGL_NO_CONTEXT, context_attributes);
-    if (opengl_state->context == EGL_NO_CONTEXT) {
-        gfx_message(true, str8_literal("Failed to initialize OpenGL"), str8_literal("Could not create a context."));
-        os_exit(1);
-    }
-
     // NOTE(simon): Gather configs.
     EGLint config_attributes[] = {
         EGL_SURFACE_TYPE,      EGL_WINDOW_BIT,
@@ -79,6 +66,24 @@ internal B32 opengl_backend_init(Void) {
             opengl_state->config = config;
             break;
         }
+    }
+
+    if (!opengl_state->config) {
+        gfx_message(true, str8_literal("Failed to initialize OpenGL"), str8_literal("Could not find a suitable config."));
+        os_exit(1);
+    }
+
+    // NOTE(simon): Create context.
+    EGLint context_attributes[] = {
+        EGL_CONTEXT_MAJOR_VERSION, 3,
+        EGL_CONTEXT_MINOR_VERSION, 3,
+        EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+        EGL_NONE,
+    };
+    opengl_state->context = eglCreateContext(opengl_state->display, opengl_state->config, EGL_NO_CONTEXT, context_attributes);
+    if (opengl_state->context == EGL_NO_CONTEXT) {
+        gfx_message(true, str8_literal("Failed to initialize OpenGL"), str8_literal("Could not create a context."));
+        os_exit(1);
     }
 
     eglMakeCurrent(opengl_state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, opengl_state->context);
