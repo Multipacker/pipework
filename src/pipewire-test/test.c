@@ -8,10 +8,64 @@
 #include "src/graphics/graphics_include.c"
 #include "src/render/opengl/wayland_opengl.c"
 
+internal Void test_wayland_xdg_wm_base_ping(Void *data, struct xdg_wm_base *xdg_wm_base, U32 serial) {
+    xdg_wm_base_pong(xdg_wm_base, serial);
+}
+
+global const struct xdg_wm_base_listener test_wayland_xdg_wm_base_listener = {
+    .ping = test_wayland_xdg_wm_base_ping,
+};
+
+internal Void test_wayland_registry_global(Void *data, struct wl_registry *registry, U32 name, const char *interface, U32 version) {
+    Wayland_State *state = &global_wayland_state;
+
+    if (strcmp(interface, wl_compositor_interface.name) == 0) {
+        if (version >= 6) {
+            state->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 6);
+        } else {
+            state->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
+        }
+    } else if (strcmp(interface, wl_shm_interface.name) == 0) {
+        state->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
+    } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
+        state->xdg_wm_base = wl_registry_bind(registry, name, &xdg_wm_base_interface, 3);
+        xdg_wm_base_add_listener(state->xdg_wm_base, &test_wayland_xdg_wm_base_listener, 0);
+    } else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0) {
+        state->xdg_decoration_manager = wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, 1);
+    }
+}
+
+internal Void test_wayland_registry_global_remove(Void *data, struct wl_registry *registry, U32 name) {
+}
+
+global const struct wl_registry_listener test_wayland_registry_listener = {
+#undef global
+    .global = test_wayland_registry_global,
+#define global static
+    .global_remove = test_wayland_registry_global_remove,
+};
+
 internal S32 os_run(Str8List arguments) {
     Arena *arena = arena_create();
 
-    gfx_init();
+    // gfx_init();
+    {
+        Wayland_State *state = &global_wayland_state;
+        state->arena = arena_create();
+        state->selection_source_arena = arena_create();
+
+        // NOTE(simon): Connect to the display and listen for initial list of globals.
+        state->display = wl_display_connect(0);
+        struct wl_registry *registry = wl_display_get_registry(state->display);
+        wl_registry_add_listener(registry, &test_wayland_registry_listener, 0);
+        wl_display_roundtrip(state->display);
+
+        // NOTE(simon): Exit if we don't have the required globals.
+        if (!(state->compositor && state->shm && state->xdg_wm_base)) {
+            // TODO(simon): Inform the user.
+            os_exit(1);
+        }
+    }
 
     // opengl_backend_init();
 
@@ -106,14 +160,55 @@ internal S32 os_run(Str8List arguments) {
         arena_end_temporary(scratch);
     }
 
-    Gfx_Window    window = gfx_window_create(str8_literal("Pipewire-test"), 1280, 720);
+    Gfx_Window gfx_window = { 0 }; // gfx_window_create(str8_literal("Pipewire-test"), 1280, 720);
+    {
+        U32 width = 1280;
+        U32 height = 720;
+        Str8 title = str8_literal("Pipewire-test");
 
-    // render_create(window)
+        Wayland_State *state = &global_wayland_state;
+        Arena_Temporary scratch = arena_get_scratch(0, 0);
+
+        // NOTE(simon): Allocate window.
+        Wayland_Window *window = state->window_freelist;
+        if (window) {
+            sll_stack_pop(state->window_freelist);
+            U64 generation = window->generation;
+            memory_zero_struct(window);
+            window->generation = generation;
+        } else {
+            window = arena_push_struct(state->arena, Wayland_Window);
+        }
+        dll_push_back(state->first_window, state->last_window, window);
+
+        // NOTE(simon): Allocate base surface.
+        window->surface = wayland_surface_create();
+        window->surface->width  = (S32) width;
+        window->surface->height = (S32) height;
+
+        // NOTE(simon): Allocate XDG surface.
+        window->xdg_surface = xdg_wm_base_get_xdg_surface(state->xdg_wm_base, window->surface->surface);
+        xdg_surface_add_listener(window->xdg_surface, &wayland_xdg_surface_listener, window);
+
+        // NOTE(simon): Get the toplevel XDG role.
+        window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
+        xdg_toplevel_add_listener(window->xdg_toplevel, &wayland_xdg_toplevel_listener, window);
+        CStr title_cstr = cstr_from_str8(scratch.arena, title);
+        xdg_toplevel_set_title(window->xdg_toplevel, title_cstr);
+
+        // NOTE(simon): Commit all changes.
+        wl_surface_commit(window->surface->surface);
+
+        gfx_window = wayland_handle_from_window(window);
+        arena_end_temporary(scratch);
+    }
+
+    // render_create(gfx_window)
     struct wl_egl_window *egl_window = 0;
     EGLSurface *egl_surface = 0;
     V2U32 surface_resolution = { 0 };
     {
-        Wayland_Window *graphics_window = wayland_window_from_handle(window);
+        Wayland_Window *graphics_window = wayland_window_from_handle(gfx_window);
 
         egl_window = wl_egl_window_create(graphics_window->surface->surface, graphics_window->surface->width, graphics_window->surface->height);
 
@@ -139,16 +234,45 @@ internal S32 os_run(Str8List arguments) {
     while (!exit) {
         Arena_Temporary scratch = arena_get_scratch(0, 0);
 
-        Gfx_EventList graphics_events = gfx_get_events(scratch.arena, false);
-        for (Gfx_Event *event = graphics_events.first; event; event = event->next) {
-            if (event->kind == Gfx_EventKind_Quit) {
-                exit = true;
+        {
+            Wayland_State *state = &global_wayland_state;
+
+            state->event_arena = scratch.arena;
+
+            // TODO(simon): Error handling
+            while (wl_display_prepare_read(state->display) != 0) {
+                wl_display_dispatch_pending(state->display);
             }
+
+            wl_display_flush(state->display);
+
+            struct pollfd fds[1] = { 0 };
+            fds[0].fd     = wl_display_get_fd(state->display);
+            fds[0].events = POLLIN;
+            poll(fds, array_count(fds), 0);
+
+            // NOTE(simon): Handle display events.
+            if (fds[0].revents & POLLIN) {
+                wl_display_read_events(state->display);
+                wl_display_dispatch_pending(state->display);
+            } else {
+                wl_display_cancel_read(state->display);
+            }
+
+            for (Gfx_Event *event = state->events.first; event; event = event->next) {
+                if (event->kind == Gfx_EventKind_Quit) {
+                    exit = true;
+                }
+            }
+
+            // NOTE(simon): Reset event state.
+            state->event_arena = 0;
+            memory_zero_struct(&state->events);
         }
 
         if (!exit) {
             // NOTE(simon): Update window.
-            V2U32 client_size = gfx_client_area_from_window(window);
+            V2U32 client_size = gfx_client_area_from_window(gfx_window);
 
             // NOTE(simon): Draw UI.
             if (surface_resolution.width != client_size.width || surface_resolution.height != client_size.height) {
@@ -167,7 +291,7 @@ internal S32 os_run(Str8List arguments) {
             glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
 
-            Wayland_Window *graphics_window = wayland_window_from_handle(window);
+            Wayland_Window *graphics_window = wayland_window_from_handle(gfx_window);
             if (graphics_window->is_configured) {
                 eglSwapBuffers(egl_display, egl_surface);
             }
@@ -176,14 +300,29 @@ internal S32 os_run(Str8List arguments) {
         arena_end_temporary(scratch);
     }
 
-    // opengl_backend_destroy(window, render);
+    // opengl_backend_destroy(gfx_window, render);
     {
         eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl_context);
         eglDestroySurface(egl_display, egl_surface);
         wl_egl_window_destroy(egl_window);
     }
 
-    gfx_window_close(window);
+    // gfx_window_close(gfx_window);
+    {
+        Wayland_State *state = &global_wayland_state;
+        Wayland_Window *window = wayland_window_from_handle(gfx_window);
+
+        arena_destroy(window->title_bar_arena);
+
+        xdg_toplevel_destroy(window->xdg_toplevel);
+        xdg_surface_destroy(window->xdg_surface);
+        wayland_surface_destroy(window->surface);
+
+        ++window->generation;
+
+        dll_remove(state->first_window, state->last_window, window);
+        sll_stack_push(state->window_freelist, window);
+    }
 
     // opengl_backend_deinit();
     {
