@@ -1,9 +1,9 @@
 #ifndef WAYLAND_OPENGL_H
 #define WAYLAND_OPENGL_H
 
+#include <wayland-egl.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <wayland-egl.h>
 
 typedef struct OpenGL_Window OpenGL_Window;
 struct OpenGL_Window {
