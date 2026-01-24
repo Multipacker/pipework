@@ -112,7 +112,7 @@ internal B32 pipewire_property_is_nil(Pipewire_Property *property) {
 }
 
 internal Void pipewire_object_update_property(Pipewire_Object *object, Str8 name, Str8 value) {
-    Pipewire_Property *existing_property = pipewire_object_property_from_name(object, name);
+    Pipewire_Property *existing_property = pipewire_property_from_object_name(object, name);
 
     if (!pipewire_property_is_nil(existing_property)) {
         pipewire_string_free(existing_property->value);
@@ -134,7 +134,7 @@ internal Void pipewire_object_update_property(Pipewire_Object *object, Str8 name
     existing_property->value = pipewire_string_allocate(value);
 }
 
-internal Pipewire_Property *pipewire_object_property_from_name(Pipewire_Object *object, Str8 name) {
+internal Pipewire_Property *pipewire_property_from_object_name(Pipewire_Object *object, Str8 name) {
     Pipewire_Property *result = &pipewire_nil_property;
     for (Pipewire_Property *property = object->first_property; property; property = property->next) {
         if (str8_equal(property->name, name)) {
@@ -145,15 +145,31 @@ internal Pipewire_Property *pipewire_object_property_from_name(Pipewire_Object *
     return result;
 }
 
-internal Str8 pipewire_object_property_string_from_name(Pipewire_Object *object, Str8 name) {
-    Pipewire_Property *property = pipewire_object_property_from_name(object, name);
+internal Str8 pipewire_property_string_from_object_name(Pipewire_Object *object, Str8 name) {
+    Pipewire_Property *property = pipewire_property_from_object_name(object, name);
     return property->value;
 }
 
-internal U32 pipewire_object_property_u32_from_name(Pipewire_Object *object, Str8 name) {
-    Pipewire_Property *property = pipewire_object_property_from_name(object, name);
+internal U32 pipewire_property_u32_from_object_name(Pipewire_Object *object, Str8 name) {
+    Pipewire_Property *property = pipewire_property_from_object_name(object, name);
     U64Decode decode = u64_from_str8(property->value);
     return (U32) decode.value;
+}
+
+internal Pipewire_Object *pipewire_property_object_from_object_name(Pipewire_Object *object, Str8 name) {
+    Pipewire_Property *property = pipewire_property_from_object_name(object, name);
+
+    U64Decode decode = { 0 };
+    if (!pipewire_property_is_nil(property)) {
+        decode = u64_from_str8(property->value);
+    }
+
+    Pipewire_Object *result = &pipewire_nil_object;
+    if (decode.size != 0) {
+        result = pipewire_object_from_id((U32) decode.value);
+    }
+
+    return result;
 }
 
 
@@ -380,7 +396,7 @@ internal Void pipewire_remove(Pipewire_Handle handle) {
 
 
 internal B32 pipewire_object_is_card(Pipewire_Object *object) {
-    Str8 media_class = pipewire_object_property_string_from_name(object, str8_literal(PW_KEY_MEDIA_CLASS));
+    Str8 media_class = pipewire_property_string_from_object_name(object, str8_literal(PW_KEY_MEDIA_CLASS));
     B32  result      = object->kind == Pipewire_Object_Device && str8_equal(media_class, str8_literal("Audio/Device"));
     return result;
 }
@@ -431,18 +447,13 @@ internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object) {
     B32 has_volume = false;
 
     // NOTE(simon): Query for card.
-    Pipewire_Object *card = &pipewire_nil_object;
-    Pipewire_Property *device_id_property = pipewire_object_property_from_name(object, str8_literal(PW_KEY_DEVICE_ID));
-    if (!pipewire_property_is_nil(device_id_property)) {
-        U32 device_id = (U32) u64_from_str8(device_id_property->value).value;
-        card = pipewire_object_from_id(device_id);
-        if (!pipewire_object_is_card(card)) {
-            card = &pipewire_nil_object;
-        }
+    Pipewire_Object *card = pipewire_property_object_from_object_name(object, str8_literal(PW_KEY_DEVICE_ID));
+    if (!pipewire_object_is_card(card)) {
+        card = &pipewire_nil_object;
     }
 
     // NOTE(simon): Query for card device volume.
-    Pipewire_Property *card_profile_device_property = pipewire_object_property_from_name(object, str8_literal("card.profile.device"));
+    Pipewire_Property *card_profile_device_property = pipewire_property_from_object_name(object, str8_literal("card.profile.device"));
     if (!pipewire_property_is_nil(card_profile_device_property)) {
         U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
 
@@ -490,20 +501,15 @@ internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object) {
 
 internal Void pipewire_set_node_volume(Pipewire_Object *object, Pipewire_Volume volume) {
     // NOTE(simon): Query for card.
-    Pipewire_Object *card = &pipewire_nil_object;
-    Pipewire_Property *device_id_property = pipewire_object_property_from_name(object, str8_literal(PW_KEY_DEVICE_ID));
-    if (!pipewire_property_is_nil(device_id_property)) {
-        U32 device_id = (U32) u64_from_str8(device_id_property->value).value;
-        card = pipewire_object_from_id(device_id);
-        if (!pipewire_object_is_card(card)) {
-            card = &pipewire_nil_object;
-        }
+    Pipewire_Object *card = pipewire_property_object_from_object_name(object, str8_literal(PW_KEY_DEVICE_ID));
+    if (!pipewire_object_is_card(card)) {
+        card = &pipewire_nil_object;
     }
 
     // NOTE(simon): Query for active card port.
     U32 device_id  = SPA_ID_INVALID;
     U32 port_index = SPA_ID_INVALID;
-    Pipewire_Property *card_profile_device_property = pipewire_object_property_from_name(object, str8_literal("card.profile.device"));
+    Pipewire_Property *card_profile_device_property = pipewire_property_from_object_name(object, str8_literal("card.profile.device"));
     if (!pipewire_property_is_nil(card_profile_device_property)) {
         U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
 
