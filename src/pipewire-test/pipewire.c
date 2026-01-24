@@ -835,47 +835,52 @@ internal Void pipewire_link_info(Void *data, const struct pw_link_info *info) {
 
 
 internal Void pipewire_registry_global(Void *data, U32 id, U32 permissions, const char *type, U32 version, const struct spa_dict *props) {
+    Pipewire_Object *object = &pipewire_nil_object;
+
     if (strcmp(type, PW_TYPE_INTERFACE_Module) == 0) {
-        Pipewire_Object *object = pipewire_create_object(id);
+        object = pipewire_create_object(id);
         object->kind = Pipewire_Object_Module;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_MODULE, 0);
         pw_module_add_listener((struct pw_module *) object->proxy, &object->listener, &module_events, object);
     } else if (strcmp(type, PW_TYPE_INTERFACE_Factory) == 0) {
-        Pipewire_Object *object = pipewire_create_object(id);
+        object = pipewire_create_object(id);
         object->kind = Pipewire_Object_Factory;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_FACTORY, 0);
         pw_factory_add_listener((struct pw_factory *) object->proxy, &object->listener, &factory_events, object);
     } else if (strcmp(type, PW_TYPE_INTERFACE_Client) == 0) {
-        Pipewire_Object *object = pipewire_create_object(id);
+        object = pipewire_create_object(id);
         object->kind = Pipewire_Object_Client;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_CLIENT, 0);
         pw_client_add_listener((struct pw_client *) object->proxy, &object->listener, &client_events, object);
     } else if (strcmp(type, PW_TYPE_INTERFACE_Device) == 0) {
-        Pipewire_Object *object = pipewire_create_object(id);
+        object = pipewire_create_object(id);
         object->kind = Pipewire_Object_Device;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_DEVICE, 0);
         pw_device_add_listener((struct pw_device *) object->proxy, &object->listener, &device_events, object);
     } else if (strcmp(type, PW_TYPE_INTERFACE_Node) == 0) {
-        Pipewire_Object *object = pipewire_create_object(id);
+        object = pipewire_create_object(id);
         object->kind = Pipewire_Object_Node;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_NODE, 0);
         pw_node_add_listener((struct pw_node *) object->proxy, &object->listener, &node_events, object);
     } else if (strcmp(type, PW_TYPE_INTERFACE_Port) == 0) {
-        Pipewire_Object *object = pipewire_create_object(id);
+        object = pipewire_create_object(id);
         object->kind = Pipewire_Object_Port;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_PORT, 0);
         pw_port_add_listener((struct pw_port *) object->proxy, &object->listener, &port_events, object);
     } else if (strcmp(type, PW_TYPE_INTERFACE_Link) == 0) {
-        Pipewire_Object *object = pipewire_create_object(id);
+        object = pipewire_create_object(id);
         object->kind = Pipewire_Object_Link;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_LINK, 0);
         pw_link_add_listener((struct pw_link *) object->proxy, &object->listener, &link_events, object);
     } else {
         printf("object: id:%u type:%s/%u\n", id, type, version);
-        //for (U32 i = 0; i < props->n_items; ++i) {
-            //const struct spa_dict_item *item = &props->items[i];
-            //printf("  %s: %s\n", item->key, item->value);
-        //}
+    }
+
+    if (!pipewire_object_is_nil(object)) {
+        const struct spa_dict_item *item = 0;
+        spa_dict_for_each(item, props) {
+            pipewire_object_update_property(object, str8_cstr((CStr) item->key), str8_cstr((CStr) item->value));
+        }
     }
 
     pipewire_synchronize();
