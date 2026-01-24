@@ -17,12 +17,17 @@ internal B32 opengl_backend_init(Void) {
 
     opengl_state->permanent_arena = arena_create_reserve(megabytes(1));
 
-    // NOTE(simon): Get display.
+    // NOTE(simon): Acquire platorm functions.
     PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC) eglGetProcAddress("eglGetPlatformDisplayEXT");
+    opengl_state->eglCreatePlatformWindowSurfaceEXT = (PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC) eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
+    if (!eglGetPlatformDisplayEXT || !opengl_state->eglCreatePlatformWindowSurfaceEXT) {
+        gfx_message(true, str8_literal("Failed to initialize OpenGL"), str8_literal("Could not load eglGetPlatformDisplayEXT or eglCreatePlatformWindowSurfaceEXT."));
+        os_exit(1);
+    }
 
+    // NOTE(simon): Get display.
     const EGLint attributes[] = {
-        EGL_PLATFORM_XCB_SCREEN_EXT,
-        x11_state->screen_index,
+        EGL_PLATFORM_XCB_SCREEN_EXT, x11_state->screen_index,
         EGL_NONE,
     };
     opengl_state->display = eglGetPlatformDisplayEXT(EGL_PLATFORM_XCB_EXT, x11_state->connection, attributes);
@@ -58,7 +63,6 @@ internal B32 opengl_backend_init(Void) {
     }
 
     eglMakeCurrent(opengl_state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, opengl_state->context);
-    eglSwapInterval(opengl_state->display, 1);
 
 #define X(type, name) name = (type) eglGetProcAddress(#name); assert(name);
     GL_FUNCTIONS(X)
@@ -118,7 +122,7 @@ internal Render_Window opengl_backend_create(Gfx_Window handle) {
 
         // NOTE(simon): Choose config.
         for (EGLint i = 0; i < config_count; ++i) {
-            render_window->surface = eglCreateWindowSurface(opengl_state->display, configs[i], graphics_window->window, surface_attributes);
+            render_window->surface = opengl_state->eglCreatePlatformWindowSurfaceEXT(opengl_state->display, configs[i], &graphics_window->window, surface_attributes);
 
             if (render_window->surface != EGL_NO_SURFACE) {
                 opengl_state->config = configs[i];
@@ -126,7 +130,7 @@ internal Render_Window opengl_backend_create(Gfx_Window handle) {
             }
         }
     } else {
-        render_window->surface = eglCreateWindowSurface(opengl_state->display, opengl_state->config, graphics_window->window, surface_attributes);
+        render_window->surface = opengl_state->eglCreatePlatformWindowSurfaceEXT(opengl_state->display, opengl_state->config, &graphics_window->window, surface_attributes);
     }
 
     if (render_window->surface == EGL_NO_SURFACE) {
@@ -159,8 +163,7 @@ internal Void opengl_window_select(Gfx_Window graphics_handle, Render_Window ren
     eglMakeCurrent(opengl_state->display, render_window->surface, render_window->surface, opengl_state->context);
 
     // NOTE(simon): This doesn't automatically get set if our first
-    // eglMakeCurrent doesn't have a default framebuffer. On my desktop using
-    // Xwayland, I get a black screen if I don't run this with a surface bound.
+    // eglMakeCurrent doesn't have a default framebuffer.
     glDrawBuffer(GL_BACK);
 }
 

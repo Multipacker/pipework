@@ -17,6 +17,9 @@ struct OpenGL_Window {
 typedef struct Wayland_OpenGLState Wayland_OpenGLState;
 struct Wayland_OpenGLState {
     Arena *permanent_arena;
+
+    PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC eglCreatePlatformWindowSurfaceEXT;
+
     EGLDisplay display;
     EGLConfig  config;
     EGLContext context;

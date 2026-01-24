@@ -16,10 +16,18 @@ internal B32 opengl_backend_init(Void) {
     Wayland_OpenGLState *opengl_state = &global_wayland_opengl_state;
     Arena_Temporary scratch = arena_get_scratch(0, 0);
 
-    opengl_state->permanent_arena = arena_create();
+    opengl_state->permanent_arena = arena_create_reserve(megabytes(1));
+
+    // NOTE(simon): Acquire platorm functions.
+    PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC) eglGetProcAddress("eglGetPlatformDisplayEXT");
+    opengl_state->eglCreatePlatformWindowSurfaceEXT = (PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC) eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
+    if (!eglGetPlatformDisplayEXT || !opengl_state->eglCreatePlatformWindowSurfaceEXT) {
+        gfx_message(true, str8_literal("Failed to initialize OpenGL"), str8_literal("Could not load eglGetPlatformDisplayEXT or eglCreatePlatformWindowSurfaceEXT."));
+        os_exit(1);
+    }
 
     // NOTE(simon): Get display.
-    opengl_state->display = eglGetDisplay((EGLNativeDisplayType) wayland_state->display);
+    opengl_state->display = eglGetPlatformDisplayEXT(EGL_PLATFORM_WAYLAND_EXT, wayland_state->display, 0);
     if (opengl_state->display == EGL_NO_DISPLAY) {
         gfx_message(true, str8_literal("Failed to initialize OpenGL"), str8_literal("Could not acquire EGL display."));
         os_exit(1);
@@ -120,17 +128,16 @@ internal Render_Window opengl_backend_create(Gfx_Window handle) {
 
     const EGLint surface_attributes[] = {
         EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_SRGB,
+        EGL_RENDER_BUFFER, EGL_BACK_BUFFER,
         EGL_NONE,
     };
 
-    render_window->surface = eglCreateWindowSurface(opengl_state->display, opengl_state->config, (EGLNativeWindowType) render_window->window, surface_attributes);
+    render_window->surface = opengl_state->eglCreatePlatformWindowSurfaceEXT(opengl_state->display, opengl_state->config, render_window->window, surface_attributes);
 
     if (render_window->surface == EGL_NO_SURFACE) {
         gfx_message(true, str8_literal("Failed to create OpenGL window"), str8_literal("Could not create a EGL window surface."));
         os_exit(1);
     }
-
-    eglSwapInterval(opengl_state->display, 1);
 
     Render_Window result = opengl_handle_from_window(render_window);
     return result;
@@ -166,8 +173,7 @@ internal Void opengl_window_select(Gfx_Window graphics_handle, Render_Window ren
     eglMakeCurrent(opengl_state->display, render_window->surface, render_window->surface, opengl_state->context);
 
     // NOTE(simon): This doesn't automatically get set if our first
-    // eglMakeCurrent doesn't have a default framebuffer. On my desktop using
-    // Xwayland, I get a black screen if I don't run this with a surface bound.
+    // eglMakeCurrent doesn't have a default framebuffer.
     glDrawBuffer(GL_BACK);
 }
 

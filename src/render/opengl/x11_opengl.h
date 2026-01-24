@@ -14,6 +14,9 @@ struct OpenGL_Window {
 typedef struct X11_OpenGLState X11_OpenGLState;
 struct X11_OpenGLState {
     Arena     *permanent_arena;
+
+    PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC eglCreatePlatformWindowSurfaceEXT;
+
     EGLDisplay display;
     EGLConfig  config;
     EGLContext context;
