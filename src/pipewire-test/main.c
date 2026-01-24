@@ -83,8 +83,8 @@ internal S32 os_run(Str8List arguments) {
         theme->selection.a = 0.3f;
         theme->focus = orange4;
 
-        theme->disabled_overlay         = gray6;
-        theme->disabled_overlay.a       = 0.5f;
+        theme->disabled_overlay         = gray9;
+        theme->disabled_overlay.a       = 0.8f;
         theme->drop_site_overlay        = gray7;
         theme->drop_site_overlay.a      = 0.5f;
         theme->inactive_panel_overlay   = v4f32(0.0f, 0.0f, 0.0f, 0.8f);
