@@ -1291,7 +1291,7 @@ internal Void gfx_init(Void) {
 
     // NOTE(simon): Exit if we don't have the required globals.
     if (!(state->compositor && state->data_device_manager && state->shm && state->xdg_wm_base && state->seat)) {
-        // TODO(simon): Inform the user.
+        gfx_message(true, str8_literal("Failed to initialize Wayland"), str8_literal("Could not acquire required globals."));
         os_exit(1);
     }
 
