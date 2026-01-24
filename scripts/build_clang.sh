@@ -118,5 +118,4 @@ clang $compiler_flags $linker_flags $base_libraries src/meta/main.c -o build/met
 
 build/meta
 
-#clang $compiler_flags $linker_flags $base_libraries $graphics_libraries $render_libraries build/pipewire-test.o src/pipewire-test/main.c -o build/pipewire-test
-clang $compiler_flags $linker_flags $base_libraries $graphics_libraries $render_libraries build/pipewire-test.o src/pipewire-test/test.c -o build/test
+clang $compiler_flags $linker_flags $base_libraries $graphics_libraries $render_libraries build/pipewire-test.o src/pipewire-test/main.c -o build/pipewire-test
