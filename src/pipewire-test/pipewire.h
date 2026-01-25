@@ -108,15 +108,32 @@ global Pipewire_Object pipewire_nil_object = {
     .previous = &pipewire_nil_object,
 };
 
-// TODO(simon): What is the maximum number of channels?
 typedef struct Pipewire_Volume Pipewire_Volume;
 struct Pipewire_Volume {
     B32 mute;
     U32 channel_count;
-    F32 channel_volumes[64];
-    U32 channel_map[64];
+    F32 channel_volumes[SPA_AUDIO_MAX_CHANNELS];
+    U32 channel_map[SPA_AUDIO_MAX_CHANNELS];
     F32 volume_base;
     F32 volume_step;
+};
+
+typedef enum {
+    Pipewire_CommandKind_Null,
+    Pipewire_CommandKind_SetVolume,
+    Pipewire_CommandKind_Link,
+    Pipewire_CommandKind_Delete,
+    Pipewire_CommandKind_COUNT,
+} Pipewire_CommandKind;
+
+typedef struct Pipewire_Command Pipewire_Command;
+struct Pipewire_Command {
+    Pipewire_Command *next;
+
+    Pipewire_CommandKind kind;
+    Pipewire_Handle      from;
+    Pipewire_Handle      to;
+    Pipewire_Volume      volume;
 };
 
 typedef struct Pipewire_State Pipewire_State;
@@ -138,6 +155,15 @@ struct Pipewire_State {
 
     struct pw_registry  *registry;
     struct spa_hook      registry_listener;
+
+    struct spa_source *process_commands_event;
+
+    // TODO(simon): Maybe use a ring buffer instead that is continually read
+    // from after synchronization?
+    B32 execute_commands;
+    Arena *command_arena;
+    Pipewire_Command *first_command;
+    Pipewire_Command *last_command;
 };
 
 internal B32 pipewire_object_is_nil(Pipewire_Object *object);
@@ -178,7 +204,7 @@ internal Void pipewire_remove(Pipewire_Handle handle);
 internal B32 pipewire_object_is_card(Pipewire_Object *object);
 
 internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object);
-internal Void            pipewire_set_node_volume(Pipewire_Object *object, Pipewire_Volume volume);
+internal Void            pipewire_set_node_volume(Pipewire_Handle handle, Pipewire_Volume volume);
 
 internal Void pipewire_init(Void);
 internal Void pipewire_synchronize(Void);

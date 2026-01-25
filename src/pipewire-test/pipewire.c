@@ -345,54 +345,18 @@ internal Pipewire_Object *pipewire_object_from_id(U32 id) {
 
 
 internal Void pipewire_link(Pipewire_Handle output_handle, Pipewire_Handle input_handle) {
-    Pipewire_Object *output = pipewire_object_from_handle(output_handle);
-    Pipewire_Object *input  = pipewire_object_from_handle(input_handle);
-
-    B32 good = true;
-
-    struct pw_properties *properties = pw_properties_new(
-        PW_KEY_OBJECT_LINGER, "true",
-        NULL
-    );
-
-    // NOTE(simon): Fill output object.
-    if (output->kind == Pipewire_Object_Port) {
-        pw_properties_setf(properties, PW_KEY_LINK_OUTPUT_PORT, "%u", output->id);
-    } else if (output->kind == Pipewire_Object_Node) {
-        pw_properties_setf(properties, PW_KEY_LINK_OUTPUT_NODE, "%u", output->id);
-    } else {
-        good = false;
-    }
-
-    // NOTE(simon): Fill input object.
-    if (input->kind == Pipewire_Object_Port) {
-        pw_properties_setf(properties, PW_KEY_LINK_INPUT_PORT, "%u", input->id);
-    } else if (input->kind == Pipewire_Object_Node) {
-        pw_properties_setf(properties, PW_KEY_LINK_INPUT_NODE, "%u", input->id);
-    } else {
-        good = false;
-    }
-
-    // NOTE(simon): Create the link if we could fill out all required
-    // properties.
-    if (good) {
-        pw_core_create_object(
-            pipewire_state->core,
-            "link-factory",
-            PW_TYPE_INTERFACE_Link,
-            PW_VERSION_LINK,
-            &properties->dict, 0
-        );
-    }
-
-    pw_properties_free(properties);
+    Pipewire_Command *command = arena_push_struct(pipewire_state->command_arena, Pipewire_Command);
+    command->kind = Pipewire_CommandKind_Link;
+    command->from = output_handle;
+    command->to   = input_handle;
+    sll_queue_push(pipewire_state->first_command, pipewire_state->last_command, command);
 }
 
 internal Void pipewire_remove(Pipewire_Handle handle) {
-    Pipewire_Object *object = pipewire_object_from_handle(handle);
-    if (!pipewire_object_is_nil(object)) {
-        pw_registry_destroy(pipewire_state->registry, object->id);
-    }
+    Pipewire_Command *command = arena_push_struct(pipewire_state->command_arena, Pipewire_Command);
+    command->kind = Pipewire_CommandKind_Delete;
+    command->to   = handle;
+    sll_queue_push(pipewire_state->first_command, pipewire_state->last_command, command);
 }
 
 
@@ -501,82 +465,12 @@ internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object) {
     return volume;
 }
 
-internal Void pipewire_set_node_volume(Pipewire_Object *object, Pipewire_Volume volume) {
-    // NOTE(simon): Query for card.
-    Pipewire_Object *card = pipewire_property_object_from_object_name(object, str8_literal(PW_KEY_DEVICE_ID));
-    if (!pipewire_object_is_card(card)) {
-        card = &pipewire_nil_object;
-    }
-
-    // NOTE(simon): Query for active card port.
-    U32 device_id  = SPA_ID_INVALID;
-    U32 port_index = SPA_ID_INVALID;
-    Pipewire_Property *card_profile_device_property = pipewire_property_from_object_name(object, str8_literal("card.profile.device"));
-    if (!pipewire_property_is_nil(card_profile_device_property)) {
-        U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
-
-        for (Pipewire_Parameter *parameter = card->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
-            if (parameter->id != SPA_PARAM_Route) {
-                continue;
-            }
-
-            const struct spa_pod_prop *index_prop  = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_index);
-            const struct spa_pod_prop *device_prop = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_device);
-
-            if (!index_prop || !device_prop) {
-                continue;
-            }
-
-            S32 route_index  = 0;
-            S32 route_device = 0;
-            spa_pod_get_int(&index_prop->value,  &route_index);
-            spa_pod_get_int(&device_prop->value, &route_device);
-
-            if ((U32) route_device == device) {
-                device_id  = (U32) route_device;
-                port_index = (U32) route_index;
-                break;
-            }
-        }
-    }
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
-    U8 buffer[1024];
-    struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-    if (device_id != SPA_ID_INVALID && port_index != SPA_ID_INVALID) {
-        struct spa_pod_frame frame = { 0 };
-        spa_pod_builder_push_object(
-            &builder, &frame,
-            SPA_TYPE_OBJECT_ParamRoute, SPA_PARAM_Route
-        );
-        spa_pod_builder_add(
-            &builder,
-            SPA_PARAM_ROUTE_index,  SPA_POD_Int(port_index),
-            SPA_PARAM_ROUTE_device, SPA_POD_Int(device_id),
-            SPA_PARAM_ROUTE_save,   SPA_POD_Bool(true),
-            0
-        );
-        spa_pod_builder_prop(&builder, SPA_PARAM_ROUTE_props, 0);
-        spa_pod_builder_add_object(
-            &builder,
-            SPA_TYPE_OBJECT_Props,   SPA_PARAM_Props,
-            SPA_PROP_mute,           SPA_POD_Bool(volume.mute),
-            SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
-        );
-        struct spa_pod *pod = spa_pod_builder_pop(&builder, &frame);
-
-        pw_device_set_param((struct pw_device *) card->proxy, SPA_PARAM_Route, 0, pod);
-    } else {
-        struct spa_pod *pod = spa_pod_builder_add_object(
-            &builder,
-            SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
-            SPA_PROP_mute, SPA_POD_Bool(volume.mute),
-            SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
-        );
-        pw_node_set_param((struct pw_node *) object->proxy, SPA_PARAM_Props, 0, pod);
-    }
-#pragma clang diagnostic pop
+internal Void pipewire_set_node_volume(Pipewire_Handle handle, Pipewire_Volume volume) {
+    Pipewire_Command *command = arena_push_struct(pipewire_state->command_arena, Pipewire_Command);
+    command->kind   = Pipewire_CommandKind_SetVolume;
+    command->to     = handle;
+    command->volume = volume;
+    sll_queue_push(pipewire_state->first_command, pipewire_state->last_command, command);
 }
 
 
@@ -915,6 +809,151 @@ internal Void pipewire_core_done(Void *data, U32 id, S32 seq) {
             object->changed = false;
         }
 
+        if (pipewire_state->execute_commands) {
+            pipewire_state->execute_commands = false;
+
+            for (Pipewire_Command *command = pipewire_state->first_command; command; command = command->next) {
+                switch (command->kind) {
+                    case Pipewire_CommandKind_Null: {
+                    } break;
+                    case Pipewire_CommandKind_SetVolume: {
+                        Pipewire_Object *object = pipewire_object_from_handle(command->to);
+
+                        // NOTE(simon): Query for card.
+                        Pipewire_Object *card = pipewire_property_object_from_object_name(object, str8_literal(PW_KEY_DEVICE_ID));
+                        if (!pipewire_object_is_card(card)) {
+                            card = &pipewire_nil_object;
+                        }
+
+                        // NOTE(simon): Query for active card port.
+                        U32 device_id  = SPA_ID_INVALID;
+                        U32 port_index = SPA_ID_INVALID;
+                        Pipewire_Property *card_profile_device_property = pipewire_property_from_object_name(object, str8_literal("card.profile.device"));
+                        if (!pipewire_property_is_nil(card_profile_device_property)) {
+                            U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
+
+                            for (Pipewire_Parameter *parameter = card->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
+                                if (parameter->id != SPA_PARAM_Route) {
+                                    continue;
+                                }
+
+                                const struct spa_pod_prop *index_prop  = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_index);
+                                const struct spa_pod_prop *device_prop = spa_pod_find_prop(parameter->param, 0, SPA_PARAM_ROUTE_device);
+
+                                if (!index_prop || !device_prop) {
+                                    continue;
+                                }
+
+                                S32 route_index  = 0;
+                                S32 route_device = 0;
+                                spa_pod_get_int(&index_prop->value,  &route_index);
+                                spa_pod_get_int(&device_prop->value, &route_device);
+
+                                if ((U32) route_device == device) {
+                                    device_id  = (U32) route_device;
+                                    port_index = (U32) route_index;
+                                    break;
+                                }
+                            }
+                        }
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+                        U8 buffer[1024];
+                        struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+                        if (device_id != SPA_ID_INVALID && port_index != SPA_ID_INVALID) {
+                            struct spa_pod_frame frame = { 0 };
+                            spa_pod_builder_push_object(
+                                &builder, &frame,
+                                SPA_TYPE_OBJECT_ParamRoute, SPA_PARAM_Route
+                            );
+                            spa_pod_builder_add(
+                                &builder,
+                                SPA_PARAM_ROUTE_index,  SPA_POD_Int(port_index),
+                                SPA_PARAM_ROUTE_device, SPA_POD_Int(device_id),
+                                SPA_PARAM_ROUTE_save,   SPA_POD_Bool(true),
+                                0
+                            );
+                            spa_pod_builder_prop(&builder, SPA_PARAM_ROUTE_props, 0);
+                            spa_pod_builder_add_object(
+                                &builder,
+                                SPA_TYPE_OBJECT_Props,   SPA_PARAM_Props,
+                                SPA_PROP_mute,           SPA_POD_Bool(command->volume.mute),
+                                SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, command->volume.channel_count, command->volume.channel_volumes)
+                            );
+                            struct spa_pod *pod = spa_pod_builder_pop(&builder, &frame);
+
+                            pw_device_set_param((struct pw_device *) card->proxy, SPA_PARAM_Route, 0, pod);
+                        } else if (!pipewire_object_is_nil(object)) {
+                            struct spa_pod *pod = spa_pod_builder_add_object(
+                                &builder,
+                                SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
+                                SPA_PROP_mute, SPA_POD_Bool(command->volume.mute),
+                                SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, command->volume.channel_count, command->volume.channel_volumes)
+                            );
+                            pw_node_set_param((struct pw_node *) object->proxy, SPA_PARAM_Props, 0, pod);
+                        }
+#pragma clang diagnostic pop
+                    } break;
+                    case Pipewire_CommandKind_Link: {
+                        Pipewire_Object *output = pipewire_object_from_handle(command->from);
+                        Pipewire_Object *input  = pipewire_object_from_handle(command->to);
+
+                        B32 good = true;
+
+                        struct pw_properties *properties = pw_properties_new(
+                            PW_KEY_OBJECT_LINGER, "true",
+                            NULL
+                        );
+
+                        // NOTE(simon): Fill output object.
+                        if (output->kind == Pipewire_Object_Port) {
+                            pw_properties_setf(properties, PW_KEY_LINK_OUTPUT_PORT, "%u", output->id);
+                        } else if (output->kind == Pipewire_Object_Node) {
+                            pw_properties_setf(properties, PW_KEY_LINK_OUTPUT_NODE, "%u", output->id);
+                        } else {
+                            good = false;
+                        }
+
+                        // NOTE(simon): Fill input object.
+                        if (input->kind == Pipewire_Object_Port) {
+                            pw_properties_setf(properties, PW_KEY_LINK_INPUT_PORT, "%u", input->id);
+                        } else if (input->kind == Pipewire_Object_Node) {
+                            pw_properties_setf(properties, PW_KEY_LINK_INPUT_NODE, "%u", input->id);
+                        } else {
+                            good = false;
+                        }
+
+                        // NOTE(simon): Create the link if we could fill out all required
+                        // properties.
+                        if (good) {
+                            pw_core_create_object(
+                                pipewire_state->core,
+                                "link-factory",
+                                PW_TYPE_INTERFACE_Link,
+                                PW_VERSION_LINK,
+                                &properties->dict, 0
+                            );
+                        }
+
+                        pw_properties_free(properties);
+                    } break;
+                    case Pipewire_CommandKind_Delete: {
+                        Pipewire_Object *object = pipewire_object_from_handle(command->to);
+                        if (!pipewire_object_is_nil(object)) {
+                            pw_registry_destroy(pipewire_state->registry, object->id);
+                        }
+                    } break;
+                    case Pipewire_CommandKind_COUNT: {
+                    } break;
+                }
+            }
+
+            arena_reset(pipewire_state->command_arena);
+            pipewire_state->first_command;
+            pipewire_state->last_command;
+        }
+
         pw_main_loop_quit(pipewire_state->loop);
     }
 }
@@ -925,12 +964,18 @@ internal Void pipewire_synchronize(Void) {
     pipewire_state->core_sequence = pw_core_sync(pipewire_state->core, PW_ID_CORE, pipewire_state->core_sequence);
 }
 
+internal Void pipewire_process_commands(Void *data, U64 count) {
+    pipewire_state->execute_commands = true;
+    pipewire_synchronize();
+}
+
 
 
 internal Void pipewire_init(Void) {
     Arena *arena = arena_create();
     pipewire_state = arena_push_struct(arena, Pipewire_State);
     pipewire_state->arena = arena;
+    pipewire_state->command_arena = arena_create();
 
     pw_init(0, 0);
 
@@ -938,6 +983,8 @@ internal Void pipewire_init(Void) {
     pipewire_state->context  = pw_context_new(pw_main_loop_get_loop(pipewire_state->loop), 0, 0);
     pipewire_state->core     = pw_context_connect(pipewire_state->context, 0, 0);
     pipewire_state->registry = pw_core_get_registry(pipewire_state->core, PW_VERSION_REGISTRY, 0);
+
+    pipewire_state->process_commands_event = pw_loop_add_event(pw_main_loop_get_loop(pipewire_state->loop), pipewire_process_commands, 0);
     
     pw_core_add_listener(pipewire_state->core, &pipewire_state->core_listener, &pipewire_core_roundtrip_events, 0);
     pw_registry_add_listener(pipewire_state->registry, &pipewire_state->registry_listener, &registry_events, 0);
@@ -950,7 +997,8 @@ internal Void pipewire_init(Void) {
 }
 
 internal Void pipewire_tick(Void) {
-    pipewire_synchronize();
+    // TODO(simon): Wait for all commands to finish execution.
+    pw_loop_signal_event(pw_main_loop_get_loop(pipewire_state->loop), pipewire_state->process_commands_event);
 
     int error = pw_main_loop_run(pipewire_state->loop);
     if (error < 0) {

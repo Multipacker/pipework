@@ -2393,7 +2393,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         }
 
         if (mute_input.flags & UI_InputFlag_LeftClicked || slider_input.flags & UI_InputFlag_LeftDragging) {
-            pipewire_set_node_volume(row->object, row->volume);
+            pipewire_set_node_volume(pipewire_handle_from_object(row->object), row->volume);
         }
     }
 
