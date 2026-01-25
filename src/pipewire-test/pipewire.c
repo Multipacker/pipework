@@ -91,6 +91,8 @@ internal Void pipewire_destroy_object(Pipewire_Object *object) {
             case Pipewire_Object_Link: {
                 pw_link_info_free(object->info);
             } break;
+            case Pipewire_Object_Metadata: {
+            } break;
             case Pipewire_Object_COUNT: {
             } break;
         }
@@ -834,6 +836,13 @@ internal Void pipewire_link_info(Void *data, const struct pw_link_info *info) {
 
 
 
+internal S32 pipewire_metadata_property(Void *data, U32 subject, const char *key, const char *type, const char *value) {
+    printf("%p.%u.%s: %s = %s;\n", data, subject, key, type, value);
+    return 0;
+}
+
+
+
 internal Void pipewire_registry_global(Void *data, U32 id, U32 permissions, const char *type, U32 version, const struct spa_dict *props) {
     Pipewire_Object *object = &pipewire_nil_object;
 
@@ -872,6 +881,11 @@ internal Void pipewire_registry_global(Void *data, U32 id, U32 permissions, cons
         object->kind = Pipewire_Object_Link;
         object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_LINK, 0);
         pw_link_add_listener((struct pw_link *) object->proxy, &object->listener, &link_events, object);
+    } else if (strcmp(type, PW_TYPE_INTERFACE_Metadata) == 0) {
+        object = pipewire_create_object(id);
+        object->kind = Pipewire_Object_Metadata;
+        object->proxy = pw_registry_bind(pipewire_state->registry, id, type, PW_VERSION_METADATA, 0);
+        pw_metadata_add_listener((struct pw_metadata *) object->proxy, &object->listener, &metadata_events, object);
     } else {
         printf("object: id:%u type:%s/%u\n", id, type, version);
     }

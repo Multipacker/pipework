@@ -643,6 +643,9 @@ internal Str8 kind_from_object(Pipewire_Object *object) {
         case Pipewire_Object_Link: {
             result = str8_literal("Link");
         } break;
+        case Pipewire_Object_Metadata: {
+            result = str8_literal("Metadata");
+        } break;
         case Pipewire_Object_COUNT: {
         } break;
     }
@@ -717,6 +720,13 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
         } break;
         case Pipewire_Object_Link: {
             name = str8_format(arena, "Link %u", object->id);
+        } break;
+        case Pipewire_Object_Metadata: {
+            name = pipewire_property_string_from_object_name(object, str8_literal("metadata.name"));
+
+            if (!name.size) {
+                name = str8_format(arena, "Metadata %u", object->id);
+            }
         } break;
         case Pipewire_Object_COUNT: {
         } break;

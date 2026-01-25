@@ -11,6 +11,7 @@
 #include <spa/debug/pod.h>
 #include <spa/pod/builder.h>
 #include <pipewire/pipewire.h>
+#include <pipewire/extensions/metadata.h>
 #pragma clang diagnostic pop
 #define global static
 
@@ -64,6 +65,7 @@ typedef enum {
     Pipewire_Object_Node,
     Pipewire_Object_Port,
     Pipewire_Object_Link,
+    Pipewire_Object_Metadata,
     Pipewire_Object_COUNT,
 } Pipewire_ObjectKind;
 
@@ -251,7 +253,16 @@ internal Void pipewire_link_info(Void *data, const struct pw_link_info *info);
 
 global const struct pw_link_events link_events = {
     PW_VERSION_LINK_EVENTS,
-    .info  = pipewire_link_info,
+    .info = pipewire_link_info,
+};
+
+
+
+internal S32 pipewire_metadata_property(Void *data, U32 subject, const char *key, const char *type, const char *value);
+
+global const struct pw_metadata_events metadata_events = {
+    PW_VERSION_METADATA_EVENTS,
+    .property = pipewire_metadata_property,
 };
 
 
