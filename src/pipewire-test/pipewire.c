@@ -460,9 +460,6 @@ internal Pipewire_Volume pipewire_volume_from_node(Pipewire_Object *object) {
     return volume;
 }
 
-// FIXME(simon): There is a weird bug where we buffer several audio changes.
-// Changing the audio externally and then switching focus back to us resets the
-// volume for some reason.
 internal Void pipewire_set_node_volume(Pipewire_Handle handle, Pipewire_Volume volume) {
     Pipewire_Command *command = arena_push_struct(pipewire_state->command_arena, Pipewire_Command);
     command->kind   = Pipewire_CommandKind_SetVolume;
@@ -948,8 +945,9 @@ internal Void pipewire_core_done(Void *data, U32 id, S32 seq) {
             }
 
             arena_reset(pipewire_state->command_arena);
-            pipewire_state->first_command;
-            pipewire_state->last_command;
+            pipewire_state->first_command = 0;
+            pipewire_state->last_command = 0;
+            pipewire_synchronize();
         }
 
         pw_main_loop_quit(pipewire_state->loop);
