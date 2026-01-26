@@ -661,24 +661,24 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
             name = str8_literal("Null");
         } break;
         case Pipewire_Object_Module: {
-            name = pipewire_property_string_from_object_name(object, str8_literal("module.name"));
+            name = pipewire_string_from_property_name(object, str8_literal("module.name"));
 
             if (!name.size) {
                 name = str8_format(arena, "Module %u", object->id);
             }
         } break;
         case Pipewire_Object_Factory: {
-            name = pipewire_property_string_from_object_name(object, str8_literal("factory.name"));
+            name = pipewire_string_from_property_name(object, str8_literal("factory.name"));
 
             if (!name.size) {
                 name = str8_format(arena, "Factory %u", object->id);
             }
         } break;
         case Pipewire_Object_Client: {
-            name = pipewire_property_string_from_object_name(object, str8_literal("client.name"));
+            name = pipewire_string_from_property_name(object, str8_literal("client.name"));
 
             if (!name.size) {
-                name = pipewire_property_string_from_object_name(object, str8_literal("application.name"));
+                name = pipewire_string_from_property_name(object, str8_literal("application.name"));
             }
 
             if (!name.size) {
@@ -686,10 +686,10 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
             }
         } break;
         case Pipewire_Object_Device: {
-            name = pipewire_property_string_from_object_name(object, str8_literal("device.nick"));
+            name = pipewire_string_from_property_name(object, str8_literal("device.nick"));
 
             if (!name.size) {
-                name = pipewire_property_string_from_object_name(object, str8_literal("device.name"));
+                name = pipewire_string_from_property_name(object, str8_literal("device.name"));
             }
 
             if (!name.size) {
@@ -697,10 +697,10 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
             }
         } break;
         case Pipewire_Object_Node: {
-            name = pipewire_property_string_from_object_name(object, str8_literal("node.nick"));
+            name = pipewire_string_from_property_name(object, str8_literal("node.nick"));
 
             if (!name.size) {
-                name = pipewire_property_string_from_object_name(object, str8_literal("node.name"));
+                name = pipewire_string_from_property_name(object, str8_literal("node.name"));
             }
 
             if (!name.size) {
@@ -708,10 +708,10 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
             }
         } break;
         case Pipewire_Object_Port: {
-            name = pipewire_property_string_from_object_name(object, str8_literal("port.alias"));
+            name = pipewire_string_from_property_name(object, str8_literal("port.alias"));
 
             if (!name.size) {
-                name = pipewire_property_string_from_object_name(object, str8_literal("port.name"));
+                name = pipewire_string_from_property_name(object, str8_literal("port.name"));
             }
 
             if (!name.size) {
@@ -722,7 +722,7 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
             name = str8_format(arena, "Link %u", object->id);
         } break;
         case Pipewire_Object_Metadata: {
-            name = pipewire_property_string_from_object_name(object, str8_literal("metadata.name"));
+            name = pipewire_string_from_property_name(object, str8_literal("metadata.name"));
 
             if (!name.size) {
                 name = str8_format(arena, "Metadata %u", object->id);
@@ -886,7 +886,7 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
                 str8_equal(row->label, str8_literal("module.id")) ||
                 str8_equal(row->label, str8_literal("factory.id"))
             ) {
-                row->reference = pipewire_property_object_from_object_name(selected_object, row->label);
+                row->reference = pipewire_object_from_property_name(selected_object, row->label);
                 row->value = name_from_object(scratch.arena, row->reference);
             } else {
                 row->value = property->value;
@@ -1647,8 +1647,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             F32 input_port_name_max_width  = 0.0f;
             F32 output_port_name_max_width = 0.0f;
             for (Pipewire_Object *child = node->first; !pipewire_object_is_nil(child); child = child->next) {
-                Str8 direction = pipewire_property_string_from_object_name(child, str8_literal("port.direction"));
-                Str8 port_name = pipewire_property_string_from_object_name(child, str8_literal("port.name"));
+                Str8 direction = pipewire_string_from_property_name(child, str8_literal("port.direction"));
+                Str8 port_name = pipewire_string_from_property_name(child, str8_literal("port.name"));
                 F32 port_name_width = font_cache_size_from_font_text_size(ui_font_top(), port_name, ui_font_size_top()).width + 2.0f * ui_text_x_padding_top();
                 if (str8_equal(direction, str8_literal("in"))) {
                     ++input_port_count;
@@ -1756,8 +1756,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                     PortNode *port_node = arena_push_struct(frame_arena(), PortNode);
                     port_node->port = child;
 
-                    Str8 direction = pipewire_property_string_from_object_name(child, str8_literal("port.direction"));
-                    Str8 port_name = pipewire_property_string_from_object_name(child, str8_literal("port.name"));
+                    Str8 direction = pipewire_string_from_property_name(child, str8_literal("port.direction"));
+                    Str8 port_name = pipewire_string_from_property_name(child, str8_literal("port.name"));
 
                     V2F32 local_position = { 0 };
                     local_position.y = 0.5f * row_height;
@@ -1809,8 +1809,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                             Pipewire_Object *output_port = pipewire_object_from_handle(state->drag_context->port);
                             Pipewire_Object *input_port  = child;
 
-                            Str8 output_direction = pipewire_property_string_from_object_name(output_port, str8_literal("port.direction"));
-                            Str8 input_direction  = pipewire_property_string_from_object_name(input_port,  str8_literal("port.direction"));
+                            Str8 output_direction = pipewire_string_from_property_name(output_port, str8_literal("port.direction"));
+                            Str8 input_direction  = pipewire_string_from_property_name(input_port,  str8_literal("port.direction"));
 
                             if (str8_equal(input_direction, str8_literal("out"))) {
                                 swap(input_port,      output_port,      Pipewire_Object *);
@@ -1824,8 +1824,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                                     continue;
                                 }
 
-                                U32 output_port_id = pipewire_property_u32_from_object_name(link, str8_literal("link.output.port"));
-                                U32 input_port_id  = pipewire_property_u32_from_object_name(link, str8_literal("link.input.port"));
+                                U32 output_port_id = (U32) pipewire_u64_from_property_name(link, str8_literal("link.output.port")).value;
+                                U32 input_port_id  = (U32) pipewire_u64_from_property_name(link, str8_literal("link.input.port")).value;
 
                                 if (output_port_id == output_port->id && input_port_id == input_port->id) {
                                     existing_link = link;
@@ -1877,8 +1877,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             // NOTE(simon): Find input and output ports.
             PortNode *output_port = 0;
             PortNode *input_port  = 0;
-            U32 output_port_id = pipewire_property_u32_from_object_name(node, str8_literal("link.output.port"));
-            U32 input_port_id  = pipewire_property_u32_from_object_name(node, str8_literal("link.input.port"));
+            U32 output_port_id = (U32) pipewire_u64_from_property_name(node, str8_literal("link.output.port")).value;
+            U32 input_port_id  = (U32) pipewire_u64_from_property_name(node, str8_literal("link.input.port")).value;
             for (PortNode *port_node = first_port; port_node; port_node = port_node->next) {
                 if (port_node->port->id == output_port_id) {
                     output_port = port_node;
@@ -1923,7 +1923,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                     V2F32 output_point = v2f32_subtract(node->position, tab_state->graph_offset);
                     V2F32 input_point  = mouse;
 
-                    Str8 direction = pipewire_property_string_from_object_name(port, str8_literal("port.direction"));
+                    Str8 direction = pipewire_string_from_property_name(port, str8_literal("port.direction"));
                     if (str8_equal(direction, str8_literal("in"))) {
                         swap(output_point, input_point, V2F32);
                     }

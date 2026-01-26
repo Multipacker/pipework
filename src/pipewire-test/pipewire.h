@@ -176,10 +176,10 @@ internal Void             pipewire_destroy_object(Pipewire_Object *object);
 
 internal B32                pipewire_property_is_nil(Pipewire_Property *property);
 internal Void               pipewire_object_update_property(Pipewire_Object *object, Str8 name, Str8 value);
-internal Pipewire_Property *pipewire_property_from_object_name(Pipewire_Object *object, Str8 name);
-internal Str8               pipewire_property_string_from_object_name(Pipewire_Object *object, Str8 name);
-internal U32                pipewire_property_u32_from_object_name(Pipewire_Object *object, Str8 name);
-internal Pipewire_Object   *pipewire_property_object_from_object_name(Pipewire_Object *object, Str8 name);
+internal Pipewire_Property *pipewire_property_from_name(Pipewire_Object *object, Str8 name);
+internal Str8               pipewire_string_from_property_name(Pipewire_Object *object, Str8 name);
+internal U64Decode          pipewire_u64_from_property_name(Pipewire_Object *object, Str8 name);
+internal Pipewire_Object   *pipewire_object_from_property_name(Pipewire_Object *object, Str8 name);
 
 internal B32  pipewire_parameter_is_nil(Pipewire_Parameter *parameter);
 internal Void pipewire_object_remove_parameter(Pipewire_Object *object, U32 id);
