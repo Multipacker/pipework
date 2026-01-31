@@ -1,16 +1,65 @@
+#ifndef NEW_PIPEWIRE_H
+#define NEW_PIPEWIRE_H
+
+#undef global
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+#pragma clang diagnostic ignored "-Wconversion"
+#pragma clang diagnostic ignored "-Wc2y-extensions"
+#include <spa/utils/result.h>
+#include <pipewire/pipewire.h>
+#include <pipewire/extensions/metadata.h>
+#pragma clang diagnostic pop
+#define global static
+
 typedef struct Pipewire_Handle Pipewire_Handle;
 struct Pipewire_Handle {
     U64 u64[2];
 };
 
+typedef enum {
+    Pipewire_ObjectKind_Null,
+    Pipewire_ObjectKind_Client,
+    Pipewire_ObjectKind_Device,
+    Pipewire_ObjectKind_Factory,
+    Pipewire_ObjectKind_Link,
+    Pipewire_ObjectKind_Metadata,
+    Pipewire_ObjectKind_Module,
+    Pipewire_ObjectKind_Node,
+    Pipewire_ObjectKind_Port,
+    Pipewire_ObjectKind_COUNT,
+} Pipewire_ObjectKind;
+
+typedef enum {
+    Pipewire_EventKind_Create,
+    Pipewire_EventKind_Destroy,
+} Pipewire_EventKind;
+
+typedef struct Pipewire_Event Pipewire_Event;
+struct Pipewire_Event {
+    Pipewire_Event *next;
+
+    Pipewire_EventKind  kind;
+    // TODO(simon): Do we really need a separate object kind or can we bake this into Pipewire_EventKind?
+    Pipewire_ObjectKind object_kind;
+
+    U32 id;
+    Pipewire_Handle handle;
+};
+
+typedef struct Pipewire_EventList Pipewire_EventList;
+struct Pipewire_EventList {
+    Pipewire_Event *first;
+    Pipewire_Event *last;
+    U64 count;
+};
+
 typedef struct Pipewire_Object Pipewire_Object;
 struct Pipewire_Object {
-    // NOTE(simon): Identifier from Pipewire
-    U32 id;
-
-    // NOTE(simon): Generation because I don't know the exact guarantees about
-    // Pipewires IDs.
     U64 generation;
+
+    U32 id;
+    Pipewire_Handle entity;
 
     // NOTE(simon): State.
 
@@ -27,8 +76,14 @@ struct Pipewire_Object {
 typedef struct Pipewire_Entity Pipewire_Entity;
 struct Pipewire_Entity {
     // NOTE(simon): Hashmap links.
+    Pipewire_Entity *hash_next;
+    Pipewire_Entity *hash_previous;
+
+    // NOTE(simon): Creation order list.
     Pipewire_Entity *next;
     Pipewire_Entity *previous;
+
+    Pipewire_ObjectKind kind;
 
     // NOTE(simon): Identifier from Pipewire
     U32 id;
@@ -40,8 +95,14 @@ struct Pipewire_Entity {
     // NOTE(simon): Pipewire handle.
     struct pw_proxy *proxy;
 
-    // NOTE(simon): Listener handles.
+    // NOTE(simon): Listener handle.
     struct spa_hook object_listener;
+
+    // NOTE(simon): Low-level state tracking.
+    B8    created;
+    B8    changed;
+    B8    deleted;
+    Void *info;
 };
 
 global Pipewire_Entity pipewire_entity_nil = { 0 };
@@ -56,7 +117,7 @@ typedef struct Pipewire_State Pipewire_State;
 struct Pipewire_State {
     // NOTE(simon): Allocators.
     Arena *arena;
-    Pipewire_Entity     *entity_freelist;
+    Pipewire_Entity *entity_freelist;
 
     // NOTE(simon): Core Pipewire handles.
     struct pw_main_loop *loop;
@@ -75,12 +136,17 @@ struct Pipewire_State {
     // NOTE(simon): Pipewire id -> entity map.
     Pipewire_EntityList *entity_map;
     U64 entity_map_capacity;
+    Pipewire_Entity *first_entity;
+    Pipewire_Entity *last_entity;
 };
 
 global Pipewire_State *pipewire_state;
 
+internal Pipewire_Event *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
+internal Str8 pipewire_string_from_object_kind(Pipewire_ObjectKind kind);
+
 // NOTE(simon): Entity allocation/freeing.
-internal Pipewire_Entity *pipewire_entity_allocate(Void);
+internal Pipewire_Entity *pipewire_entity_allocate(U32 id);
 internal Void             pipewire_entity_free(Pipewire_Entity *entity);
 
 // NOTE(simon): Entity <-> handle.
@@ -109,7 +175,7 @@ global struct pw_client_events pipewire_client_listener = {
 // NOTE(simon): Core listeners.
 // TODO(simon): There are more events here, are they interesting?
 internal Void pipewire_core_done(Void *data, U32 id, S32 sequence);
-internal Void pipewire_core_error(Void *data, U32 id, S32 sequence);
+internal Void pipewire_core_error(Void *data, U32 id, S32 sequence, S32 res, const char *message);
 global struct pw_core_events pipewire_core_listener = {
     PW_VERSION_CORE_EVENTS,
     .done  = pipewire_core_done,
@@ -181,3 +247,5 @@ global struct pw_registry_events pipewire_registry_listener = {
     .global_remove = pipewire_registry_global_remove,
 #define global static
 };
+
+#endif // NEW_PIPEWIRE_H
