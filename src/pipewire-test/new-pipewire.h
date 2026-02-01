@@ -7,6 +7,7 @@
 #pragma clang diagnostic ignored "-Wconversion"
 #pragma clang diagnostic ignored "-Wc2y-extensions"
 #include <spa/utils/result.h>
+#include <spa/debug/pod.h>
 #include <pipewire/pipewire.h>
 #include <pipewire/extensions/metadata.h>
 #pragma clang diagnostic pop
@@ -32,19 +33,54 @@ typedef enum {
 
 typedef enum {
     Pipewire_EventKind_Create,
+    Pipewire_EventKind_UpdateProperties,
+    Pipewire_EventKind_UpdateParameter,
+    Pipewire_EventKind_AddMetadata,
     Pipewire_EventKind_Destroy,
 } Pipewire_EventKind;
+
+typedef struct Pipewire_Property Pipewire_Property;
+struct Pipewire_Property {
+    Str8 key;
+    Str8 value;
+};
+
+typedef struct Pipewire_ParameterNode Pipewire_ParameterNode;
+struct Pipewire_ParameterNode {
+    struct Pipewire_ParameterNode *next;
+    struct spa_pod *parameter;
+};
 
 typedef struct Pipewire_Event Pipewire_Event;
 struct Pipewire_Event {
     Pipewire_Event *next;
 
-    Pipewire_EventKind  kind;
+    Pipewire_EventKind kind;
+    U32 id;
+
+    // NOTE(simon): Create
     // TODO(simon): Do we really need a separate object kind or can we bake this into Pipewire_EventKind?
     Pipewire_ObjectKind object_kind;
+    Pipewire_Handle     handle;
 
-    U32 id;
-    Pipewire_Handle handle;
+    // NOTE(simon): UpdateProperties
+    U64 property_count;
+    Pipewire_Property *properties;
+
+    // NOTE(simon): UpdateParameter
+    // TODO(simon): Probably flags so that we can do generic editing of
+    // parameters.
+    U32 parameter_id;
+    U32 parameter_flags;
+    S32 parameter_sequence;
+    Pipewire_ParameterNode *first_parameter;
+    Pipewire_ParameterNode *last_parameter;
+
+    // NOTE(simon): AddMetadata
+    U32  metadata_issuer;
+    Str8 metadata_key;
+    Str8 metadata_type;
+    Str8 metadata_value;
 };
 
 typedef struct Pipewire_EventList Pipewire_EventList;
@@ -54,32 +90,63 @@ struct Pipewire_EventList {
     U64 count;
 };
 
+typedef struct Pipewire_Metadata Pipewire_Metadata;
+struct Pipewire_Metadata {
+    Pipewire_Metadata *next;
+    Pipewire_Metadata *previous;
+    U32  issuer;
+    Str8 key;
+    Str8 type;
+    Str8 value;
+};
+
 typedef struct Pipewire_Object Pipewire_Object;
 struct Pipewire_Object {
-    U64 generation;
+    Pipewire_Object *next;
+    Pipewire_Object *previous;
+
+    Pipewire_ObjectKind kind;
 
     U32 id;
+    U64 generation;
+
     Pipewire_Handle entity;
 
     // NOTE(simon): State.
 
     // NOTE(simon): Properties.
+    U64 property_count;
+    Pipewire_Property *properties;
 
     // NOTE(simon): Parameters.
 
     // NOTE(simon): Metadata.
-    // NOTE(simon): Exact layout depends on if the metadata is stored on
-    // subjects or on issuers. Maybe store it as a completely separate thing
-    // with links to issuer and subject?
+    Pipewire_Metadata *first_metadata;
+    Pipewire_Metadata *last_metadata;
+};
+
+global Pipewire_Object pipewire_object_nil = { 0 };
+
+typedef struct Pipewire_ObjectList Pipewire_ObjectList;
+struct Pipewire_ObjectList {
+    Pipewire_Object *first;
+    Pipewire_Object *last;
+};
+
+typedef struct Pipewire_ObjectStore Pipewire_ObjectStore;
+struct Pipewire_ObjectStore {
+    // NOTE(simon): Allocators.
+    Arena *arena;
+    Pipewire_Object *object_freelist;
+
+    // NOTE(simon): Pipewire id -> object map.
+    Pipewire_ObjectList *object_map;
+    U64 object_map_capacity;
 };
 
 typedef struct Pipewire_Entity Pipewire_Entity;
 struct Pipewire_Entity {
     // NOTE(simon): Hashmap links.
-    Pipewire_Entity *hash_next;
-    Pipewire_Entity *hash_previous;
-
-    // NOTE(simon): Creation order list.
     Pipewire_Entity *next;
     Pipewire_Entity *previous;
 
@@ -99,9 +166,7 @@ struct Pipewire_Entity {
     struct spa_hook object_listener;
 
     // NOTE(simon): Low-level state tracking.
-    B8    created;
     B8    changed;
-    B8    deleted;
     Void *info;
 };
 
@@ -136,14 +201,20 @@ struct Pipewire_State {
     // NOTE(simon): Pipewire id -> entity map.
     Pipewire_EntityList *entity_map;
     U64 entity_map_capacity;
-    Pipewire_Entity *first_entity;
-    Pipewire_Entity *last_entity;
+
+    Arena *event_arena;
+    Pipewire_EventList events;
+
+    Pipewire_ObjectStore *store;
 };
 
 global Pipewire_State *pipewire_state;
 
-internal Pipewire_Event *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
 internal Str8 pipewire_string_from_object_kind(Pipewire_ObjectKind kind);
+
+// NOTE(simon): Events.
+internal Pipewire_Event *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
+internal Pipewire_Event *pipewire_event_list_push_properties(Arena *arena, Pipewire_EventList *list, U32 id, struct spa_dict *properties);
 
 // NOTE(simon): Entity allocation/freeing.
 internal Pipewire_Entity *pipewire_entity_allocate(U32 id);
