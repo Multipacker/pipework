@@ -99,6 +99,77 @@ internal Pipewire_Object *pipewire_object_store_object_from_id(Pipewire_ObjectSt
     return result;
 }
 
+internal U64 pipewire_chunk_index_from_size(U64 size) {
+    U64 chunk_index = 0;
+    if (size) {
+        for (U64 i = 0; i < array_count(pipewire_chunk_sizes); ++i) {
+            if (size <= pipewire_chunk_sizes[i]) {
+                chunk_index = 1 + i;
+                break;
+            }
+        }
+    }
+    return chunk_index;
+}
+
+internal Void *pipewire_object_store_allocate(Pipewire_ObjectStore *store, U64 size) {
+    U64 chunk_index = pipewire_chunk_index_from_size(size);
+    Pipewire_ChunkNode *chunk = 0;
+
+    if (chunk_index == array_count(pipewire_chunk_sizes)) {
+        Pipewire_ChunkNode *best_chunk_previous = 0;
+        Pipewire_ChunkNode *best_chunk = 0;
+        for (Pipewire_ChunkNode *candidate = store->chunk_freelist[chunk_index - 1], *previous = 0; candidate; previous = candidate, candidate = candidate->next) {
+            if (candidate->size >= size && (!best_chunk || candidate->size < best_chunk->size)) {
+                best_chunk_previous = previous;
+                best_chunk = candidate;
+            }
+        }
+
+        if (best_chunk) {
+            chunk = best_chunk;
+            if (best_chunk_previous) {
+                best_chunk_previous->next = best_chunk->next;
+            } else {
+                store->chunk_freelist[chunk_index - 1] = best_chunk->next;
+            }
+        } else {
+            U64 ceiled_size = u64_ceil_to_power_of_2(size);
+            chunk = (Pipewire_ChunkNode *) arena_push_no_zero(store->arena, ceiled_size, 16);
+        }
+    } else if (chunk_index != 0) {
+        chunk = store->chunk_freelist[chunk_index - 1];
+        if (chunk) {
+            sll_stack_pop(store->chunk_freelist[chunk_index - 1]);
+        } else {
+            chunk = (Pipewire_ChunkNode *) arena_push_no_zero(store->arena, pipewire_chunk_sizes[chunk_index - 1], 16);
+        }
+    }
+
+    Void *result = (Void *) chunk;
+    return result;
+}
+
+internal Void pipewire_object_store_free(Pipewire_ObjectStore *store, Void *data, U64 size) {
+    U64 chunk_index = pipewire_chunk_index_from_size(size);
+    if (data && chunk_index) {
+        Pipewire_ChunkNode *chunk = (Pipewire_ChunkNode *) data;
+        chunk->size = u64_ceil_to_power_of_2(size);
+        sll_stack_push(store->chunk_freelist[chunk_index - 1], chunk);
+    }
+}
+
+internal Str8 pipewire_object_store_allocate_string(Pipewire_ObjectStore *store, Str8 string) {
+    U8 *data = pipewire_object_store_allocate(store, string.size);
+    memory_copy(data, string.data, string.size);
+    Str8 result = str8(data, string.size);
+    return result;
+}
+
+internal Void pipewire_object_store_free_string(Pipewire_ObjectStore *store, Str8 string) {
+    pipewire_object_store_free(store, string.data, string.size);
+}
+
 internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pipewire_EventList events) {
     for (Pipewire_Event *event = events.first; event; event = event->next) {
         switch (event->kind) {
@@ -126,10 +197,120 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
                 dll_push_back(object_bucket->first, object_bucket->last, object);
             } break;
             case Pipewire_EventKind_UpdateProperties: {
+                Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
+
+                if (!pipewire_object_is_nil(object)) {
+                    // NOTE(simon): Free old properties.
+                    for (U64 i = 0; i < object->property_count; ++i) {
+                        pipewire_object_store_free_string(store, object->properties[i].key);
+                        pipewire_object_store_free_string(store, object->properties[i].value);
+                    }
+                    pipewire_object_store_free(store, object->properties, object->property_count * sizeof(Pipewire_Property));
+
+                    // NOTE(simon): Allocate new properties.
+                    object->property_count = event->property_count;
+                    object->properties = pipewire_object_store_allocate(store, object->property_count * sizeof(Pipewire_Property));
+                    for (U64 i = 0; i < object->property_count; ++i) {
+                        object->properties[i].key = pipewire_object_store_allocate_string(store, event->properties[i].key);
+                        object->properties[i].value = pipewire_object_store_allocate_string(store, event->properties[i].value);
+                    }
+                }
             } break;
             case Pipewire_EventKind_UpdateParameter: {
+                Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
+
+                // NOTE(simon): Find old paramter.
+                Pipewire_Parameter *parameter = 0;
+                for (Pipewire_Parameter *candidate = object->first_parameter; candidate; candidate = candidate->next) {
+                    if (candidate->id == event->parameter_id) {
+                        parameter = candidate;
+                        break;
+                    }
+                }
+
+                // NOTE(simon): Free the old parameter.
+                if (parameter) {
+                    for (U64 i = 0; i < parameter->count; ++i) {
+                        pipewire_object_store_free(store, parameter->parameters[i], SPA_POD_SIZE(parameter->parameters[i]));
+                    }
+                    pipewire_object_store_free(store, parameter->parameters, parameter->count * sizeof(*parameter->parameters));
+                }
+
+                // NOTE(simon): Fill the new data.
+                if (!pipewire_object_is_nil(object)) {
+                    // NOTE(simon): Allocate.
+                    if (!parameter) {
+                        parameter = store->parameter_freelist;
+                        if (parameter) {
+                            sll_stack_pop(store->parameter_freelist);
+                            memory_zero_struct(parameter);
+                        } else {
+                            parameter = arena_push_struct(store->arena, Pipewire_Parameter);
+                        }
+
+                        // NOTE(simon): Insert.
+                        dll_push_back(object->first_parameter, object->last_parameter, parameter);
+                    }
+
+                    // NOTE(simon): Fill.
+                    parameter->id    = event->parameter_id;
+                    parameter->flags = event->parameter_flags;
+                    parameter->count = 0;
+                    parameter->parameters = pipewire_object_store_allocate(store, event->parameter_count * sizeof(*parameter->parameters));
+                    for (Pipewire_ParameterNode *node = event->first_parameter; node; node = node->next, ++parameter->count) {
+                        parameter->parameters[parameter->count] = pipewire_object_store_allocate(store, SPA_POD_SIZE(node->parameter));
+                        memory_copy(parameter->parameters[parameter->count], node->parameter, SPA_POD_SIZE(node->parameter));
+                    }
+                }
             } break;
             case Pipewire_EventKind_AddMetadata: {
+                Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
+
+                // NOTE(simon): Find the associated metadata based on issuer and key.
+                Pipewire_Metadata *metadata = 0;
+                for (Pipewire_Metadata *candidate = object->first_metadata; candidate; candidate = candidate->next) {
+                    if (candidate->issuer == event->metadata_issuer && str8_equal(candidate->key, event->metadata_key)) {
+                        metadata = candidate;
+                        break;
+                    }
+                }
+
+                // NOTE(simon): Free the metadata if we found it.
+                if (metadata) {
+                    pipewire_object_store_free_string(store, metadata->key);
+                    pipewire_object_store_free_string(store, metadata->type);
+                    pipewire_object_store_free_string(store, metadata->value);
+                }
+
+                if (!pipewire_object_is_nil(object)) {
+                    if (event->metadata_value.size) {
+                        // NOTE(simon): Allocate.
+                        if (!metadata) {
+                            metadata = store->metadata_freelist;
+                            if (metadata) {
+                                sll_stack_pop(store->metadata_freelist);
+                                memory_zero_struct(metadata);
+                            } else {
+                                metadata = arena_push_struct(store->arena, Pipewire_Metadata);
+                            }
+
+                            // NOTE(simon): Add to object.
+                            dll_push_back(object->first_metadata, object->last_metadata, metadata);
+                        }
+
+                        // NOTE(simon): Fill.
+                        metadata->issuer = event->metadata_issuer;
+                        metadata->key    = pipewire_object_store_allocate_string(store, event->metadata_key);
+                        metadata->type   = pipewire_object_store_allocate_string(store, event->metadata_type);
+                        metadata->value  = pipewire_object_store_allocate_string(store, event->metadata_value);
+                    } else {
+                        // NOTE(simon): Remove from node.
+                        if (metadata) {
+                            dll_remove(object->first_metadata, object->last_metadata, metadata);
+                            sll_stack_push(store->metadata_freelist, metadata);
+                        }
+                    }
+                }
             } break;
             case Pipewire_EventKind_Destroy: {
                 Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
@@ -137,12 +318,38 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
                 if (!pipewire_object_is_nil(object)) {
                     // TODO(simon): Free associated resources.
 
+                    // NOTE(simon): Free metadata.
+                    for (Pipewire_Metadata *metadata = object->first_metadata, *next = 0; metadata; metadata = next) {
+                        next = metadata;
+                        pipewire_object_store_free_string(store, metadata->key);
+                        pipewire_object_store_free_string(store, metadata->type);
+                        pipewire_object_store_free_string(store, metadata->value);
+                        dll_remove(object->first_metadata, object->last_metadata, metadata);
+                        sll_stack_push(store->metadata_freelist, metadata);
+                    }
+
+                    // NOTE(simon): Free parameters.
+                    for (Pipewire_Parameter *parameter = object->first_parameter, *next = 0; parameter; parameter = next) {
+                        next = parameter->next;
+                        for (U64 i = 0; i < parameter->count; ++i) {
+                            pipewire_object_store_free(store, parameter->parameters[i], SPA_POD_SIZE(parameter->parameters[i]));
+                        }
+                        pipewire_object_store_free(store, parameter->parameters, parameter->count * sizeof(*parameter->parameters));
+                        dll_remove(object->first_parameter, object->last_parameter, parameter);
+                        sll_stack_push(store->parameter_freelist, parameter);
+                    }
+
+                    // NOTE(simon): Free properties.
+                    for (U64 i = 0; i < object->property_count; ++i) {
+                        pipewire_object_store_free_string(store, object->properties[i].key);
+                        pipewire_object_store_free_string(store, object->properties[i].value);
+                    }
+                    pipewire_object_store_free(store, object->properties, object->property_count * sizeof(Pipewire_Property));
+
                     // NOTE(simon): Remove from id -> object map.
                     U64 hash = u64_hash(object->id);
                     Pipewire_ObjectList *object_bucket = &store->object_map[hash & (store->object_map_capacity - 1)];
                     dll_remove(object_bucket->first, object_bucket->last, object);
-
-                    // NOTE(simon): Add to freelist.
                     sll_stack_push(store->object_freelist, object);
                 }
             } break;
@@ -496,6 +703,7 @@ internal Void pipewire_device_param(Void *data, S32 sequence, U32 id, U32 index,
         node->parameter = (struct spa_pod *) arena_push_array(pipewire_state->event_arena, U8, size);
         memory_copy(node->parameter, param, size);
         sll_queue_push(event->first_parameter, event->last_parameter, node);
+        ++event->parameter_count;
     }
 }
 
@@ -628,6 +836,7 @@ internal Void pipewire_node_param(Void *data, S32 sequence, U32 id, U32 index, U
         node->parameter = (struct spa_pod *) arena_push_array(pipewire_state->event_arena, U8, size);
         memory_copy(node->parameter, param, size);
         sll_queue_push(event->first_parameter, event->last_parameter, node);
+        ++event->parameter_count;
     }
 }
 
@@ -701,6 +910,7 @@ internal Void pipewire_port_param(Void *data, S32 sequence, U32 id, U32 index, U
         node->parameter = (struct spa_pod *) arena_push_array(pipewire_state->event_arena, U8, size);
         memory_copy(node->parameter, param, size);
         sll_queue_push(event->first_parameter, event->last_parameter, node);
+        ++event->parameter_count;
     }
 }
 

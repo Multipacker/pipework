@@ -1,5 +1,5 @@
-#ifndef NEW_PIPEWIRE_H
-#define NEW_PIPEWIRE_H
+#ifndef PIPEWIRE_INCLUDE_H
+#define PIPEWIRE_INCLUDE_H
 
 #undef global
 #pragma clang diagnostic push
@@ -51,6 +51,16 @@ struct Pipewire_ParameterNode {
     struct spa_pod *parameter;
 };
 
+typedef struct Pipewire_Parameter Pipewire_Parameter;
+struct Pipewire_Parameter {
+    Pipewire_Parameter *next;
+    Pipewire_Parameter *previous;
+    U32 id;
+    U32 flags;
+    U64 count;
+    struct spa_pod **parameters;
+};
+
 typedef struct Pipewire_Event Pipewire_Event;
 struct Pipewire_Event {
     Pipewire_Event *next;
@@ -68,11 +78,10 @@ struct Pipewire_Event {
     Pipewire_Property *properties;
 
     // NOTE(simon): UpdateParameter
-    // TODO(simon): Probably flags so that we can do generic editing of
-    // parameters.
     U32 parameter_id;
     U32 parameter_flags;
     S32 parameter_sequence;
+    U32 parameter_count;
     Pipewire_ParameterNode *first_parameter;
     Pipewire_ParameterNode *last_parameter;
 
@@ -119,6 +128,8 @@ struct Pipewire_Object {
     Pipewire_Property *properties;
 
     // NOTE(simon): Parameters.
+    Pipewire_Parameter *first_parameter;
+    Pipewire_Parameter *last_parameter;
 
     // NOTE(simon): Metadata.
     Pipewire_Metadata *first_metadata;
@@ -133,11 +144,30 @@ struct Pipewire_ObjectList {
     Pipewire_Object *last;
 };
 
+typedef struct Pipewire_ChunkNode Pipewire_ChunkNode;
+struct Pipewire_ChunkNode {
+    Pipewire_ChunkNode *next;
+    U64 size;
+};
+
+global U64 pipewire_chunk_sizes[] = {
+    16,
+    64,
+    256,
+    1024,
+    4096,
+    16384,
+    0xFFFFFFFFFFFFFFFF,
+};
+
 typedef struct Pipewire_ObjectStore Pipewire_ObjectStore;
 struct Pipewire_ObjectStore {
     // NOTE(simon): Allocators.
     Arena *arena;
-    Pipewire_Object *object_freelist;
+    Pipewire_Object    *object_freelist;
+    Pipewire_Parameter *parameter_freelist;
+    Pipewire_Metadata  *metadata_freelist;
+    Pipewire_ChunkNode *chunk_freelist[array_count(pipewire_chunk_sizes)];
 
     // NOTE(simon): Pipewire id -> object map.
     Pipewire_ObjectList *object_map;
@@ -319,4 +349,4 @@ global struct pw_registry_events pipewire_registry_listener = {
 #define global static
 };
 
-#endif // NEW_PIPEWIRE_H
+#endif // PIPEWIRE_INCLUDE_H
