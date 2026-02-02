@@ -36,6 +36,19 @@ internal Str8 pipewire_string_from_object_kind(Pipewire_ObjectKind kind) {
     return result;
 }
 
+internal U64 pipewire_chunk_index_from_size(U64 size) {
+    U64 chunk_index = 0;
+    if (size) {
+        for (U64 i = 0; i < array_count(pipewire_chunk_sizes); ++i) {
+            if (size <= pipewire_chunk_sizes[i]) {
+                chunk_index = 1 + i;
+                break;
+            }
+        }
+    }
+    return chunk_index;
+}
+
 
 
 // NOTE(simon): Events.
@@ -60,14 +73,149 @@ internal Pipewire_Event *pipewire_event_list_push_properties(Arena *arena, Pipew
     return event;
 }
 
+internal Void str8_serial_push_data(Arena *arena, Str8List *list, Void *ptr, U64 size) {
+    if (list->last && list->last->string.data + list->last->string.size == arena->memory + arena->position) {
+        U8 *buffer = arena_push_array_no_zero(arena, U8, size);
+        memory_copy(buffer, ptr, size);
+        list->last->string.size += size;
+    } else {
+        Str8Node *node = arena_push_struct(arena, Str8Node);
+        dll_push_back(list->first, list->last, node);
+        ++list->node_count;
+        list->last->string = str8_copy(arena, str8(ptr, size));
+    }
+
+    list->total_size += size;
+}
+
+internal U64 str8_deserial_read_data(Str8 string, U64 offset, Void *ptr, U64 size) {
+    U64 bytes_left = string.size - u64_min(offset, string.size);
+    U64 to_read = u64_min(size, bytes_left);
+    memory_copy(ptr, string.data + offset, to_read);
+    return to_read;
+}
+
+#define str8_serial_push_type(arena, list, ptr) str8_serial_push_data(arena, list, ptr, sizeof(*ptr))
+
+#define str8_deserial_read_type(string, offset, ptr) str8_deserial_read_data(string, offset, ptr, sizeof(*ptr))
+
+internal Str8 pipewire_serialized_string_from_event_list(Arena *arena, Pipewire_EventList events) {
+    Arena_Temporary scratch = arena_get_scratch(&arena, 1);
+    Str8List serialized = { 0 };
+
+    str8_serial_push_type(scratch.arena, &serialized, &events.count);
+    for (Pipewire_Event *event = events.first; event; event = event->next) {
+        str8_serial_push_type(scratch.arena, &serialized, &event->kind);
+        str8_serial_push_type(scratch.arena, &serialized, &event->id);
+        str8_serial_push_type(scratch.arena, &serialized, &event->object_kind);
+        str8_serial_push_type(scratch.arena, &serialized, &event->handle);
+
+        // NOTE(simon): Write property list.
+        str8_serial_push_type(scratch.arena, &serialized, &event->property_count);
+        for (U64 i = 0; i < event->property_count; ++i) {
+            Pipewire_Property *property = &event->properties[i];
+            str8_serial_push_type(scratch.arena, &serialized, &property->key.size);
+            str8_serial_push_data(scratch.arena, &serialized, property->key.data, property->key.size);
+            str8_serial_push_type(scratch.arena, &serialized, &property->value.size);
+            str8_serial_push_data(scratch.arena, &serialized, property->value.data, property->value.size);
+        }
+
+        // NOTE(simon): Write parameter list.
+        str8_serial_push_type(scratch.arena, &serialized, &event->parameter_id);
+        str8_serial_push_type(scratch.arena, &serialized, &event->parameter_flags);
+        str8_serial_push_type(scratch.arena, &serialized, &event->parameter_sequence);
+        str8_serial_push_type(scratch.arena, &serialized, &event->parameter_count);
+        for (Pipewire_ParameterNode *node = event->first_parameter; node; node = node->next) {
+            struct spa_pod *parameter = node->parameter;
+            U64 size = SPA_POD_SIZE(parameter);
+            str8_serial_push_type(scratch.arena, &serialized, &size);
+            str8_serial_push_data(scratch.arena, &serialized, parameter, size);
+        }
+
+        // NOTE(simon): Write metadata.
+        str8_serial_push_type(scratch.arena, &serialized, &event->metadata_issuer);
+        str8_serial_push_type(scratch.arena, &serialized, &event->metadata_key.size);
+        str8_serial_push_data(scratch.arena, &serialized, event->metadata_key.data, event->metadata_key.size);
+        str8_serial_push_type(scratch.arena, &serialized, &event->metadata_type.size);
+        str8_serial_push_data(scratch.arena, &serialized, event->metadata_type.data, event->metadata_type.size);
+        str8_serial_push_type(scratch.arena, &serialized, &event->metadata_value.size);
+        str8_serial_push_data(scratch.arena, &serialized, event->metadata_value.data, event->metadata_value.size);
+    }
+
+    Str8 result = str8_join(arena, serialized);
+    arena_end_temporary(scratch);
+    return result;
+}
+
+internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *arena, Str8 string) {
+    Pipewire_EventList events = { 0 };
+
+    U64 read_offset = 0;
+    read_offset += str8_deserial_read_type(string, read_offset, &events.count);
+    for (U64 i = 0; i < events.count; ++i) {
+        Pipewire_Event *event = arena_push_struct(arena, Pipewire_Event);
+        sll_queue_push(events.first, events.last, event);
+
+        read_offset += str8_deserial_read_type(string, read_offset, &event->kind);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->id);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->object_kind);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->handle);
+
+        // NOTE(simon): Read property list.
+        read_offset += str8_deserial_read_type(string, read_offset, &event->property_count);
+        event->properties = arena_push_array_no_zero(arena, Pipewire_Property, event->property_count);
+        for (U64 j = 0; j < event->property_count; ++j) {
+            Pipewire_Property *property = &event->properties[j];
+            read_offset += str8_deserial_read_type(string, read_offset, &property->key.size);
+            property->key.data = arena_push_array_no_zero(arena, U8, property->key.size);
+            read_offset += str8_deserial_read_data(string, read_offset, property->key.data, property->key.size);
+            read_offset += str8_deserial_read_type(string, read_offset, &property->value.size);
+            property->value.data = arena_push_array_no_zero(arena, U8, property->value.size);
+            read_offset += str8_deserial_read_data(string, read_offset, property->value.data, property->value.size);
+        }
+
+        // NOTE(simon): Read parameter list.
+        read_offset += str8_deserial_read_type(string, read_offset, &event->parameter_id);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->parameter_flags);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->parameter_sequence);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->parameter_count);
+        for (U64 j = 0; j < event->parameter_count; ++j) {
+            Pipewire_ParameterNode *node = arena_push_struct(arena, Pipewire_ParameterNode);
+            sll_queue_push(event->first_parameter, event->last_parameter, node);
+            U64 size = 0;
+            read_offset += str8_deserial_read_type(string, read_offset, &size);
+            node->parameter = arena_push_no_zero(arena, size, 16);
+            read_offset += str8_deserial_read_data(string, read_offset, node->parameter, size);
+        }
+
+        // NOTE(simon): Read metadata.
+        read_offset += str8_deserial_read_type(string, read_offset, &event->metadata_issuer);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->metadata_key.size);
+        event->metadata_key.data = arena_push_array_no_zero(arena, U8, event->metadata_key.size);
+        read_offset += str8_deserial_read_data(string, read_offset, event->metadata_key.data, event->metadata_key.size);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->metadata_type.size);
+        event->metadata_type.data = arena_push_array_no_zero(arena, U8, event->metadata_type.size);
+        read_offset += str8_deserial_read_data(string, read_offset, event->metadata_type.data, event->metadata_type.size);
+        read_offset += str8_deserial_read_type(string, read_offset, &event->metadata_value.size);
+        event->metadata_value.data = arena_push_array_no_zero(arena, U8, event->metadata_value.size);
+        read_offset += str8_deserial_read_data(string, read_offset, event->metadata_value.data, event->metadata_value.size);
+    }
+
+    return events;
+}
 
 
-// NOTE(simon): Object store.
+
+// NOTE(simon): Objects.
 
 internal B32 pipewire_object_is_nil(Pipewire_Object *object) {
     B32 result = !object || object == &pipewire_object_nil;
     return result;
 }
+
+
+
+// NOTE(simon): Object store.
 
 internal Pipewire_ObjectStore *pipewire_object_store_create(Void) {
     Arena *arena = arena_create();
@@ -97,19 +245,6 @@ internal Pipewire_Object *pipewire_object_store_object_from_id(Pipewire_ObjectSt
     }
 
     return result;
-}
-
-internal U64 pipewire_chunk_index_from_size(U64 size) {
-    U64 chunk_index = 0;
-    if (size) {
-        for (U64 i = 0; i < array_count(pipewire_chunk_sizes); ++i) {
-            if (size <= pipewire_chunk_sizes[i]) {
-                chunk_index = 1 + i;
-                break;
-            }
-        }
-    }
-    return chunk_index;
 }
 
 internal Void *pipewire_object_store_allocate(Pipewire_ObjectStore *store, U64 size) {
@@ -585,7 +720,11 @@ internal Void pipewire_core_done(Void *data, U32 id, S32 sequence) {
         }
     }
 
-    pipewire_object_store_apply_events(pipewire_state->store, pipewire_state->events);
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+    Str8 serialized = pipewire_serialized_string_from_event_list(scratch.arena, pipewire_state->events);
+    Pipewire_EventList events = pipewire_event_list_from_serialized_string(scratch.arena, serialized);
+    pipewire_object_store_apply_events(pipewire_state->store, events);
+    arena_end_temporary(scratch);
 
     printf("Events:\n");
     for (Pipewire_Event *event = pipewire_state->events.first; event; event = event->next) {

@@ -18,6 +18,22 @@ struct Pipewire_Handle {
     U64 u64[2];
 };
 
+typedef struct Pipewire_ChunkNode Pipewire_ChunkNode;
+struct Pipewire_ChunkNode {
+    Pipewire_ChunkNode *next;
+    U64 size;
+};
+
+global U64 pipewire_chunk_sizes[] = {
+    16,
+    64,
+    256,
+    1024,
+    4096,
+    16384,
+    0xFFFFFFFFFFFFFFFF,
+};
+
 typedef enum {
     Pipewire_ObjectKind_Null,
     Pipewire_ObjectKind_Client,
@@ -31,6 +47,16 @@ typedef enum {
     Pipewire_ObjectKind_COUNT,
 } Pipewire_ObjectKind;
 
+typedef struct Pipewire_Property Pipewire_Property;
+struct Pipewire_Property {
+    Str8 key;
+    Str8 value;
+};
+
+
+
+// NOTE(simon): Events.
+
 typedef enum {
     Pipewire_EventKind_Create,
     Pipewire_EventKind_UpdateProperties,
@@ -39,26 +65,10 @@ typedef enum {
     Pipewire_EventKind_Destroy,
 } Pipewire_EventKind;
 
-typedef struct Pipewire_Property Pipewire_Property;
-struct Pipewire_Property {
-    Str8 key;
-    Str8 value;
-};
-
 typedef struct Pipewire_ParameterNode Pipewire_ParameterNode;
 struct Pipewire_ParameterNode {
     struct Pipewire_ParameterNode *next;
     struct spa_pod *parameter;
-};
-
-typedef struct Pipewire_Parameter Pipewire_Parameter;
-struct Pipewire_Parameter {
-    Pipewire_Parameter *next;
-    Pipewire_Parameter *previous;
-    U32 id;
-    U32 flags;
-    U64 count;
-    struct spa_pod **parameters;
 };
 
 typedef struct Pipewire_Event Pipewire_Event;
@@ -99,6 +109,10 @@ struct Pipewire_EventList {
     U64 count;
 };
 
+
+
+// NOTE(simon): Objects.
+
 typedef struct Pipewire_Metadata Pipewire_Metadata;
 struct Pipewire_Metadata {
     Pipewire_Metadata *next;
@@ -107,6 +121,16 @@ struct Pipewire_Metadata {
     Str8 key;
     Str8 type;
     Str8 value;
+};
+
+typedef struct Pipewire_Parameter Pipewire_Parameter;
+struct Pipewire_Parameter {
+    Pipewire_Parameter *next;
+    Pipewire_Parameter *previous;
+    U32 id;
+    U32 flags;
+    U64 count;
+    struct spa_pod **parameters;
 };
 
 typedef struct Pipewire_Object Pipewire_Object;
@@ -144,22 +168,6 @@ struct Pipewire_ObjectList {
     Pipewire_Object *last;
 };
 
-typedef struct Pipewire_ChunkNode Pipewire_ChunkNode;
-struct Pipewire_ChunkNode {
-    Pipewire_ChunkNode *next;
-    U64 size;
-};
-
-global U64 pipewire_chunk_sizes[] = {
-    16,
-    64,
-    256,
-    1024,
-    4096,
-    16384,
-    0xFFFFFFFFFFFFFFFF,
-};
-
 typedef struct Pipewire_ObjectStore Pipewire_ObjectStore;
 struct Pipewire_ObjectStore {
     // NOTE(simon): Allocators.
@@ -173,6 +181,10 @@ struct Pipewire_ObjectStore {
     Pipewire_ObjectList *object_map;
     U64 object_map_capacity;
 };
+
+
+
+// NOTE(simon): Entities.
 
 typedef struct Pipewire_Entity Pipewire_Entity;
 struct Pipewire_Entity {
@@ -240,11 +252,30 @@ struct Pipewire_State {
 
 global Pipewire_State *pipewire_state;
 
+
+
+// NOTE(simon): Helpers.
 internal Str8 pipewire_string_from_object_kind(Pipewire_ObjectKind kind);
+internal U64  pipewire_chunk_index_from_size(U64 size);
 
 // NOTE(simon): Events.
-internal Pipewire_Event *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
-internal Pipewire_Event *pipewire_event_list_push_properties(Arena *arena, Pipewire_EventList *list, U32 id, struct spa_dict *properties);
+internal Pipewire_Event    *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
+internal Pipewire_Event    *pipewire_event_list_push_properties(Arena *arena, Pipewire_EventList *list, U32 id, struct spa_dict *properties);
+internal Str8               pipewire_serialized_string_from_event_list(Arena *arena, Pipewire_EventList events);
+internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *arena, Str8 string);
+
+// NOTE(simon): Objects.
+internal B32 pipewire_object_is_nil(Pipewire_Object *object);
+
+// NOTE(simon): Object store.
+internal Pipewire_ObjectStore *pipewire_object_store_create(Void);
+internal Void                  pipewire_object_store_destroy(Pipewire_ObjectStore *store);
+internal Pipewire_Object      *pipewire_object_store_object_from_id(Pipewire_ObjectStore *store, U32 id);
+internal Void                 *pipewire_object_store_allocate(Pipewire_ObjectStore *store, U64 size);
+internal Void                  pipewire_object_store_free(Pipewire_ObjectStore *store, Void *data, U64 size);
+internal Str8                  pipewire_object_store_allocate_string(Pipewire_ObjectStore *store, Str8 string);
+internal Void                  pipewire_object_store_free_string(Pipewire_ObjectStore *store, Str8 string);
+internal Void                  pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pipewire_EventList events);
 
 // NOTE(simon): Entity allocation/freeing.
 internal Pipewire_Entity *pipewire_entity_allocate(U32 id);
