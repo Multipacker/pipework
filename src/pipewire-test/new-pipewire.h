@@ -290,8 +290,9 @@ internal B32              pipewire_entity_is_nil(Pipewire_Entity *entity);
 internal Void pipewire_synchronize(Void);
 
 // NOTE(simon): Startup/shutdown.
-internal Void pipewire_init(Void);
-internal Void pipewire_deinit(Void);
+internal Void               pipewire_init(Void);
+internal Void               pipewire_deinit(Void);
+internal Pipewire_EventList pipewire_tick(Arena *arena);
 
 
 

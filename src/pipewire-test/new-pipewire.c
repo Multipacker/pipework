@@ -686,6 +686,33 @@ internal Void pipewire_deinit(Void) {
     arena_destroy(pipewire_state->arena);
 }
 
+#define ring_read_type(ring_base, ring_size, ring_read_position, ptr) ring_read(ring_base, ring_size, ring_read_position, ptr, sizeof(*ptr))
+
+internal Pipewire_EventList pipewire_control_to_user_pop_events(Arena *arena) {
+    Arena_Temporary scratch = arena_get_scratch(&arena, 1);
+    Str8 serialized_events = { 0 };
+    os_mutex_scope(pipewire_state->c2u_mutex)
+    for (;;) {
+        U64 unconsumed_size = pipewire_state->c2u_write_position - pipewire_state->c2u_read_position;
+        if (unconsumed_size >= sizeof(U64)) {
+            ring_read_type(pipewire_state->c2u_base, pipewire_state->c2u_size, pipewire_state->c2u_read_position, &serialized_events.size);
+            serialized_events.data = arena_push_array_no_zero(scratch.arena, U8, serialized_events.size);
+            ring_read(pipewire_state->c2u_base, pipewire_state->c2u_size, pipewire_state->c2u_read_position, serialized_events.data, serialized_events.size);
+            break;
+        }
+        os_condition_variable_wait(pipewire_state->c2u_condition_variable, pipewire_state->c2u_mutex, 100 * 1000);
+    }
+
+    Pipewire_EventList events = pipewire_event_list_from_serialized_string(arena, serialized_events);
+    arena_end_temporary(scratch);
+    return events;
+}
+
+internal Pipewire_EventList pipewire_tick(Arena *arena) {
+    Pipewire_EventList events = pipewire_control_to_user_pop_events(arena);
+    return events;
+}
+
 
 
 // NOTE(simon): Client listeners.
