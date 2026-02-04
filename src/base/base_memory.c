@@ -125,6 +125,10 @@ internal Void arena_destroy_scratch(Void) {
 }
 
 internal Arena_Temporary arena_get_scratch(Arena **conflicts, U32 count) {
+    if (!thread_scratch_arenas[0]) {
+        arena_init_scratch();
+    }
+
     Arena *selected = 0;
 
     for (U32 i = 0; i < array_count(thread_scratch_arenas); ++i) {
