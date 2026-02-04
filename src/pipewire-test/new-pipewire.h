@@ -227,10 +227,10 @@ struct Pipewire_State {
     Pipewire_Entity *entity_freelist;
 
     // NOTE(simon): Core Pipewire handles.
-    struct pw_main_loop *loop;
-    struct pw_context   *context;
-    struct pw_core      *core;
-    struct pw_registry  *registry;
+    struct pw_thread_loop *loop;
+    struct pw_context     *context;
+    struct pw_core        *core;
+    struct pw_registry    *registry;
 
     // NOTE(simon): Listener handles.
     struct spa_hook core_listener;
@@ -248,6 +248,14 @@ struct Pipewire_State {
     Pipewire_EventList events;
 
     Pipewire_ObjectStore *store;
+
+    // NOTE(simon): Thread comunication.
+    OS_Mutex c2u_ring_mutex;
+    OS_ConditionVariable c2u_ring_condition_variable;
+    U64 c2u_ring_write_position;
+    U64 c2u_ring_read_position;
+    U64 c2u_ring_size;
+    U8 *c2u_ring_base;
 };
 
 global Pipewire_State *pipewire_state;

@@ -644,23 +644,30 @@ internal Void pipewire_init(Void) {
     pipewire_state->entity_map_capacity = 1024;
     pipewire_state->entity_map = arena_push_array(pipewire_state->arena, Pipewire_EntityList, pipewire_state->entity_map_capacity);
 
+    pipewire_state->c2u_ring_mutex = os_mutex_create();
+    pipewire_state->c2u_ring_condition_variable = os_condition_variable_create();
+    pipewire_state->c2u_ring_size = megabytes(4);
+    pipewire_state->c2u_ring_base = arena_push_array(pipewire_state->arena, U8, pipewire_state->c2u_ring_size);
+
     pipewire_state->store = pipewire_object_store_create();
 
     pw_init(0, 0);
 
-    pipewire_state->loop     = pw_main_loop_new(0);
-    pipewire_state->context  = pw_context_new(pw_main_loop_get_loop(pipewire_state->loop), 0, 0);
+    pipewire_state->loop     = pw_thread_loop_new("PipeWire CTRL", 0);
+    pipewire_state->context  = pw_context_new(pw_thread_loop_get_loop(pipewire_state->loop), 0, 0);
     pipewire_state->core     = pw_context_connect(pipewire_state->context, 0, 0);
     pipewire_state->registry = pw_core_get_registry(pipewire_state->core, PW_VERSION_REGISTRY, 0);
 
     pw_core_add_listener(pipewire_state->core, &pipewire_state->core_listener, &pipewire_core_listener, 0);
     pw_registry_add_listener(pipewire_state->registry, &pipewire_state->registry_listener, &pipewire_registry_listener, 0);
 
-    pw_main_loop_run(pipewire_state->loop);
+    pw_thread_loop_start(pipewire_state->loop);
 }
 
 internal Void pipewire_deinit(Void) {
     pipewire_object_store_destroy(pipewire_state->store);
+
+    pw_thread_loop_stop(pipewire_state->loop);
 
     // NOTE(simon): Destroy all entities.
     for (U64 i = 0; i < pipewire_state->entity_map_capacity; ++i) {
@@ -671,6 +678,8 @@ internal Void pipewire_deinit(Void) {
         }
     }
 
+    // TODO(simon): Make sure to destroy the thread local scratch arenas on the control thread.
+
     // NOTE(simon): Unhook all listeners.
     spa_hook_remove(&pipewire_state->registry_listener);
     spa_hook_remove(&pipewire_state->core_listener);
@@ -679,39 +688,81 @@ internal Void pipewire_deinit(Void) {
     pw_proxy_destroy((struct pw_proxy *) pipewire_state->registry);
     pw_core_disconnect(pipewire_state->core);
     pw_context_destroy(pipewire_state->context);
-    pw_main_loop_destroy(pipewire_state->loop);
+    pw_thread_loop_destroy(pipewire_state->loop);
 
     pw_deinit();
+
+    // NOTE(simon): Destroy synchronization primitives for communication.
+    os_condition_variable_destroy(pipewire_state->c2u_ring_condition_variable);
+    os_mutex_destroy(pipewire_state->c2u_ring_mutex);
 
     arena_destroy(pipewire_state->arena);
 }
 
 #define ring_read_type(ring_base, ring_size, ring_read_position, ptr) ring_read(ring_base, ring_size, ring_read_position, ptr, sizeof(*ptr))
 
-internal Pipewire_EventList pipewire_control_to_user_pop_events(Arena *arena) {
+#define ring_write_type(ring_base, ring_size, ring_write_position, ptr) ring_write(ring_base, ring_size, ring_write_position, ptr, sizeof(*ptr))
+
+internal U64 ring_read(U8 *ring_base, U64 ring_size, U64 ring_read_position, Void *ptr, U64 size) {
+    U64 ring_offset = ring_read_position & (ring_size - 1);
+    U64 bytes_before_split = ring_size - ring_offset;
+    U64 pre_split_bytes  = u64_min(size, bytes_before_split);
+    U64 post_split_bytes = size - pre_split_bytes;
+    memory_copy(ptr, ring_base + ring_offset, pre_split_bytes);
+    memory_copy((U8 *) ptr + pre_split_bytes, ring_base, post_split_bytes);
+    return size;
+}
+
+internal U64 ring_write(U8 *ring_base, U64 ring_size, U64 ring_write_position, Void *ptr, U64 size) {
+    U64 ring_offset = ring_write_position & (ring_size - 1);
+    U64 bytes_before_split = ring_size - ring_offset;
+    U64 pre_split_bytes  = u64_min(size, bytes_before_split);
+    U64 post_split_bytes = size - pre_split_bytes;
+    memory_copy(ring_base + ring_offset, ptr, pre_split_bytes);
+    memory_copy(ring_base, (U8 *) ptr + pre_split_bytes, post_split_bytes);
+    return size;
+}
+
+internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena) {
     Arena_Temporary scratch = arena_get_scratch(&arena, 1);
     Str8 serialized_events = { 0 };
-    os_mutex_scope(pipewire_state->c2u_mutex)
+    os_mutex_scope(pipewire_state->c2u_ring_mutex)
     for (;;) {
-        U64 unconsumed_size = pipewire_state->c2u_write_position - pipewire_state->c2u_read_position;
+        U64 unconsumed_size = pipewire_state->c2u_ring_write_position - pipewire_state->c2u_ring_read_position;
         if (unconsumed_size >= sizeof(U64)) {
-            ring_read_type(pipewire_state->c2u_base, pipewire_state->c2u_size, pipewire_state->c2u_read_position, &serialized_events.size);
+            pipewire_state->c2u_ring_read_position += ring_read_type(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_read_position, &serialized_events.size);
             serialized_events.data = arena_push_array_no_zero(scratch.arena, U8, serialized_events.size);
-            ring_read(pipewire_state->c2u_base, pipewire_state->c2u_size, pipewire_state->c2u_read_position, serialized_events.data, serialized_events.size);
+            pipewire_state->c2u_ring_read_position += ring_read(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_read_position, serialized_events.data, serialized_events.size);
             break;
         }
-        os_condition_variable_wait(pipewire_state->c2u_condition_variable, pipewire_state->c2u_mutex, 100 * 1000);
+        os_condition_variable_wait(pipewire_state->c2u_ring_condition_variable, pipewire_state->c2u_ring_mutex, U64_MAX);
     }
+    os_condition_variable_signal(pipewire_state->c2u_ring_condition_variable);
 
     Pipewire_EventList events = pipewire_event_list_from_serialized_string(arena, serialized_events);
     arena_end_temporary(scratch);
     return events;
 }
 
-internal Pipewire_EventList pipewire_tick(Arena *arena) {
-    Pipewire_EventList events = pipewire_control_to_user_pop_events(arena);
-    return events;
+
+internal Void pipewire_c2u_push_events(Pipewire_EventList events) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+    Str8 serialized_events = pipewire_serialized_string_from_event_list(scratch.arena, events);
+    os_mutex_scope(pipewire_state->c2u_ring_mutex)
+    for (;;) {
+        U64 unconsumed_size = pipewire_state->c2u_ring_write_position - pipewire_state->c2u_ring_read_position;
+        U64 available_size  = pipewire_state->c2u_ring_size - unconsumed_size;
+        if (available_size >= sizeof(serialized_events.size) + serialized_events.size) {
+            pipewire_state->c2u_ring_write_position += ring_write_type(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_write_position, &serialized_events.size);
+            pipewire_state->c2u_ring_write_position += ring_write(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_write_position, serialized_events.data, serialized_events.size);
+            break;
+        }
+        os_condition_variable_wait(pipewire_state->c2u_ring_condition_variable, pipewire_state->c2u_ring_mutex, U64_MAX);
+    }
+    os_condition_variable_signal(pipewire_state->c2u_ring_condition_variable);
+    arena_end_temporary(scratch);
 }
+
 
 
 
@@ -747,46 +798,7 @@ internal Void pipewire_core_done(Void *data, U32 id, S32 sequence) {
         }
     }
 
-    Arena_Temporary scratch = arena_get_scratch(0, 0);
-    Str8 serialized = pipewire_serialized_string_from_event_list(scratch.arena, pipewire_state->events);
-    Pipewire_EventList events = pipewire_event_list_from_serialized_string(scratch.arena, serialized);
-    pipewire_object_store_apply_events(pipewire_state->store, events);
-    arena_end_temporary(scratch);
-
-    printf("Events:\n");
-    for (Pipewire_Event *event = pipewire_state->events.first; event; event = event->next) {
-        switch (event->kind) {
-            case Pipewire_EventKind_Create: {
-                Str8 kind = pipewire_string_from_object_kind(event->object_kind);
-                printf("  %u.Create %.*s\n", event->id, str8_expand(kind));
-            } break;
-            case Pipewire_EventKind_UpdateProperties: {
-                printf("  %u.UpdateProperties\n", event->id);
-                for (U64 i = 0; i < event->property_count; ++i) {
-                    printf("    %.*s = %.*s\n", str8_expand(event->properties[i].key), str8_expand(event->properties[i].value));
-                }
-            } break;
-            case Pipewire_EventKind_UpdateParameter: {
-                printf("  %u.UpdateParameter %u%s%s\n", event->id, event->parameter_id, event->parameter_flags & SPA_PARAM_INFO_READ ? " Read" : "", event->parameter_flags & SPA_PARAM_INFO_WRITE ? " Write" : "");
-                for (Pipewire_ParameterNode *node = event->first_parameter; node; node = node->next) {
-                    spa_debug_pod(4, 0, (const struct spa_pod *) node->parameter);
-                }
-            } break;
-            case Pipewire_EventKind_AddMetadata: {
-                printf(
-                    "  %u.AddMetadata %u.%.*s: %.*s = %.*s \n",
-                    event->id,
-                    event->metadata_issuer,
-                    str8_expand(event->metadata_key),
-                    str8_expand(event->metadata_type),
-                    str8_expand(event->metadata_value)
-                );
-            } break;
-            case Pipewire_EventKind_Destroy: {
-                printf("  %u.Destroy\n", event->id);
-            } break;
-        }
-    }
+    pipewire_c2u_push_events(pipewire_state->events);
 
     memory_zero_struct(&pipewire_state->events);
     arena_reset(pipewire_state->event_arena);
