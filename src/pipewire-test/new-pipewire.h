@@ -300,7 +300,10 @@ internal Void pipewire_synchronize(Void);
 // NOTE(simon): Startup/shutdown.
 internal Void               pipewire_init(Void);
 internal Void               pipewire_deinit(Void);
-internal Pipewire_EventList pipewire_tick(Arena *arena);
+
+// NOTE(simon): Control to user thread communication.
+internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena);
+internal Void               pipewire_c2u_push_events(Pipewire_EventList events);
 
 
 

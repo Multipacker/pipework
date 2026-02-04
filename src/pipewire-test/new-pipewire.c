@@ -699,29 +699,9 @@ internal Void pipewire_deinit(Void) {
     arena_destroy(pipewire_state->arena);
 }
 
-#define ring_read_type(ring_base, ring_size, ring_read_position, ptr) ring_read(ring_base, ring_size, ring_read_position, ptr, sizeof(*ptr))
 
-#define ring_write_type(ring_base, ring_size, ring_write_position, ptr) ring_write(ring_base, ring_size, ring_write_position, ptr, sizeof(*ptr))
 
-internal U64 ring_read(U8 *ring_base, U64 ring_size, U64 ring_read_position, Void *ptr, U64 size) {
-    U64 ring_offset = ring_read_position & (ring_size - 1);
-    U64 bytes_before_split = ring_size - ring_offset;
-    U64 pre_split_bytes  = u64_min(size, bytes_before_split);
-    U64 post_split_bytes = size - pre_split_bytes;
-    memory_copy(ptr, ring_base + ring_offset, pre_split_bytes);
-    memory_copy((U8 *) ptr + pre_split_bytes, ring_base, post_split_bytes);
-    return size;
-}
-
-internal U64 ring_write(U8 *ring_base, U64 ring_size, U64 ring_write_position, Void *ptr, U64 size) {
-    U64 ring_offset = ring_write_position & (ring_size - 1);
-    U64 bytes_before_split = ring_size - ring_offset;
-    U64 pre_split_bytes  = u64_min(size, bytes_before_split);
-    U64 post_split_bytes = size - pre_split_bytes;
-    memory_copy(ring_base + ring_offset, ptr, pre_split_bytes);
-    memory_copy(ring_base, (U8 *) ptr + pre_split_bytes, post_split_bytes);
-    return size;
-}
+// NOTE(simon): Control to user thread communication.
 
 internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena) {
     Arena_Temporary scratch = arena_get_scratch(&arena, 1);
@@ -743,7 +723,6 @@ internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena) {
     arena_end_temporary(scratch);
     return events;
 }
-
 
 internal Void pipewire_c2u_push_events(Pipewire_EventList events) {
     Arena_Temporary scratch = arena_get_scratch(0, 0);
