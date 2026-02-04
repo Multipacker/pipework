@@ -153,7 +153,7 @@ internal Arena_Temporary arena_get_scratch(Arena **conflicts, U32 count) {
 
 
 
-internal U64 circular_buffer_write(Void *buffer, U64 buffer_size, U64 buffer_position, Void *source, U64 source_size) {
+internal U64 ring_write(Void *buffer, U64 buffer_size, U64 buffer_position, Void *source, U64 source_size) {
     assert(source_size <= buffer_size);
     U64 write_offset    = buffer_position & (buffer_size - 1);
     U64 bytes_until_end = buffer_size - write_offset;
@@ -164,7 +164,7 @@ internal U64 circular_buffer_write(Void *buffer, U64 buffer_size, U64 buffer_pos
     return source_size;
 }
 
-internal U64 circular_buffer_read(Void *buffer, U64 buffer_size, U64 buffer_position, Void *destination, U64 destination_size) {
+internal U64 ring_read(Void *buffer, U64 buffer_size, U64 buffer_position, Void *destination, U64 destination_size) {
     assert(destination_size <= buffer_size);
     U64 read_offset     = buffer_position & (buffer_size - 1);
     U64 bytes_until_end = buffer_size - read_offset;
