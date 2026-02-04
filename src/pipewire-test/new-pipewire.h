@@ -168,20 +168,6 @@ struct Pipewire_ObjectList {
     Pipewire_Object *last;
 };
 
-typedef struct Pipewire_ObjectStore Pipewire_ObjectStore;
-struct Pipewire_ObjectStore {
-    // NOTE(simon): Allocators.
-    Arena *arena;
-    Pipewire_Object    *object_freelist;
-    Pipewire_Parameter *parameter_freelist;
-    Pipewire_Metadata  *metadata_freelist;
-    Pipewire_ChunkNode *chunk_freelist[array_count(pipewire_chunk_sizes)];
-
-    // NOTE(simon): Pipewire id -> object map.
-    Pipewire_ObjectList *object_map;
-    U64 object_map_capacity;
-};
-
 
 
 // NOTE(simon): Entities.
@@ -247,15 +233,24 @@ struct Pipewire_State {
     Arena *event_arena;
     Pipewire_EventList events;
 
-    Pipewire_ObjectStore *store;
-
-    // NOTE(simon): Thread comunication.
+    // NOTE(simon): Control to user thread comunication.
     OS_Mutex c2u_ring_mutex;
     OS_ConditionVariable c2u_ring_condition_variable;
     U64 c2u_ring_write_position;
     U64 c2u_ring_read_position;
     U64 c2u_ring_size;
     U8 *c2u_ring_base;
+
+    // NOTE(simon): Objects allocators.
+    Arena *object_arena;
+    Pipewire_Object    *object_freelist;
+    Pipewire_Parameter *parameter_freelist;
+    Pipewire_Metadata  *metadata_freelist;
+    Pipewire_ChunkNode *chunk_freelist[array_count(pipewire_chunk_sizes)];
+
+    // NOTE(simon): Pipewire id -> object map.
+    Pipewire_ObjectList *object_map;
+    U64 object_map_capacity;
 };
 
 global Pipewire_State *pipewire_state;
@@ -271,19 +266,15 @@ internal Pipewire_Event    *pipewire_event_list_push(Arena *arena, Pipewire_Even
 internal Pipewire_Event    *pipewire_event_list_push_properties(Arena *arena, Pipewire_EventList *list, U32 id, struct spa_dict *properties);
 internal Str8               pipewire_serialized_string_from_event_list(Arena *arena, Pipewire_EventList events);
 internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *arena, Str8 string);
+internal Void               pipewire_apply_events(Pipewire_EventList events);
 
 // NOTE(simon): Objects.
-internal B32 pipewire_object_is_nil(Pipewire_Object *object);
-
-// NOTE(simon): Object store.
-internal Pipewire_ObjectStore *pipewire_object_store_create(Void);
-internal Void                  pipewire_object_store_destroy(Pipewire_ObjectStore *store);
-internal Pipewire_Object      *pipewire_object_store_object_from_id(Pipewire_ObjectStore *store, U32 id);
-internal Void                 *pipewire_object_store_allocate(Pipewire_ObjectStore *store, U64 size);
-internal Void                  pipewire_object_store_free(Pipewire_ObjectStore *store, Void *data, U64 size);
-internal Str8                  pipewire_object_store_allocate_string(Pipewire_ObjectStore *store, Str8 string);
-internal Void                  pipewire_object_store_free_string(Pipewire_ObjectStore *store, Str8 string);
-internal Void                  pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pipewire_EventList events);
+internal B32              pipewire_object_is_nil(Pipewire_Object *object);
+internal Pipewire_Object *pipewire_object_from_id(U32 id);
+internal Void            *pipewire_allocate(U64 size);
+internal Void             pipewire_free(Void *data, U64 size);
+internal Str8             pipewire_allocate_string(Str8 string);
+internal Void             pipewire_free_string(Str8 string);
 
 // NOTE(simon): Entity allocation/freeing.
 internal Pipewire_Entity *pipewire_entity_allocate(U32 id);
@@ -298,8 +289,9 @@ internal B32              pipewire_entity_is_nil(Pipewire_Entity *entity);
 internal Void pipewire_synchronize(Void);
 
 // NOTE(simon): Startup/shutdown.
-internal Void               pipewire_init(Void);
-internal Void               pipewire_deinit(Void);
+internal Void pipewire_init(Void);
+internal Void pipewire_deinit(Void);
+internal Void pipewire_tick(Void);
 
 // NOTE(simon): Control to user thread communication.
 internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena);

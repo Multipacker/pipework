@@ -204,120 +204,19 @@ internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *ar
     return events;
 }
 
-
-
-// NOTE(simon): Objects.
-
-internal B32 pipewire_object_is_nil(Pipewire_Object *object) {
-    B32 result = !object || object == &pipewire_object_nil;
-    return result;
-}
-
-
-
-// NOTE(simon): Object store.
-
-internal Pipewire_ObjectStore *pipewire_object_store_create(Void) {
-    Arena *arena = arena_create();
-    Pipewire_ObjectStore *store = arena_push_struct(arena, Pipewire_ObjectStore);
-    store->arena = arena;
-
-    store->object_map_capacity = 1024;
-    store->object_map = arena_push_array(store->arena, Pipewire_ObjectList, store->object_map_capacity);
-
-    return store;
-}
-
-internal Void pipewire_object_store_destroy(Pipewire_ObjectStore *store) {
-    arena_destroy(store->arena);
-}
-
-internal Pipewire_Object *pipewire_object_store_object_from_id(Pipewire_ObjectStore *store, U32 id) {
-    Pipewire_Object *result = &pipewire_object_nil;
-
-    U64 hash = u64_hash(id);
-    Pipewire_ObjectList *object_bucket = &store->object_map[hash & (store->object_map_capacity - 1)];
-    for (Pipewire_Object *object = object_bucket->first; object; object = object->next) {
-        if (object->id == id) {
-            result = object;
-            break;
-        }
-    }
-
-    return result;
-}
-
-internal Void *pipewire_object_store_allocate(Pipewire_ObjectStore *store, U64 size) {
-    U64 chunk_index = pipewire_chunk_index_from_size(size);
-    Pipewire_ChunkNode *chunk = 0;
-
-    if (chunk_index == array_count(pipewire_chunk_sizes)) {
-        Pipewire_ChunkNode *best_chunk_previous = 0;
-        Pipewire_ChunkNode *best_chunk = 0;
-        for (Pipewire_ChunkNode *candidate = store->chunk_freelist[chunk_index - 1], *previous = 0; candidate; previous = candidate, candidate = candidate->next) {
-            if (candidate->size >= size && (!best_chunk || candidate->size < best_chunk->size)) {
-                best_chunk_previous = previous;
-                best_chunk = candidate;
-            }
-        }
-
-        if (best_chunk) {
-            chunk = best_chunk;
-            if (best_chunk_previous) {
-                best_chunk_previous->next = best_chunk->next;
-            } else {
-                store->chunk_freelist[chunk_index - 1] = best_chunk->next;
-            }
-        } else {
-            U64 ceiled_size = u64_ceil_to_power_of_2(size);
-            chunk = (Pipewire_ChunkNode *) arena_push_no_zero(store->arena, ceiled_size, 16);
-        }
-    } else if (chunk_index != 0) {
-        chunk = store->chunk_freelist[chunk_index - 1];
-        if (chunk) {
-            sll_stack_pop(store->chunk_freelist[chunk_index - 1]);
-        } else {
-            chunk = (Pipewire_ChunkNode *) arena_push_no_zero(store->arena, pipewire_chunk_sizes[chunk_index - 1], 16);
-        }
-    }
-
-    Void *result = (Void *) chunk;
-    return result;
-}
-
-internal Void pipewire_object_store_free(Pipewire_ObjectStore *store, Void *data, U64 size) {
-    U64 chunk_index = pipewire_chunk_index_from_size(size);
-    if (data && chunk_index) {
-        Pipewire_ChunkNode *chunk = (Pipewire_ChunkNode *) data;
-        chunk->size = u64_ceil_to_power_of_2(size);
-        sll_stack_push(store->chunk_freelist[chunk_index - 1], chunk);
-    }
-}
-
-internal Str8 pipewire_object_store_allocate_string(Pipewire_ObjectStore *store, Str8 string) {
-    U8 *data = pipewire_object_store_allocate(store, string.size);
-    memory_copy(data, string.data, string.size);
-    Str8 result = str8(data, string.size);
-    return result;
-}
-
-internal Void pipewire_object_store_free_string(Pipewire_ObjectStore *store, Str8 string) {
-    pipewire_object_store_free(store, string.data, string.size);
-}
-
-internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pipewire_EventList events) {
+internal Void pipewire_apply_events(Pipewire_EventList events) {
     for (Pipewire_Event *event = events.first; event; event = event->next) {
         switch (event->kind) {
             case Pipewire_EventKind_Create: {
                 // NOTE(simon): Allocate.
-                Pipewire_Object *object = store->object_freelist;
+                Pipewire_Object *object = pipewire_state->object_freelist;
                 U64 generation = 0;
                 if (object) {
                     generation = object->generation + 1;
-                    sll_stack_pop(store->object_freelist);
+                    sll_stack_pop(pipewire_state->object_freelist);
                     memory_zero_struct(object);
                 } else {
-                    object = arena_push_struct(store->arena, Pipewire_Object);
+                    object = arena_push_struct(pipewire_state->object_arena, Pipewire_Object);
                 }
 
                 // NOTE(simon): Fill.
@@ -328,31 +227,31 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
 
                 // NOTE(simon): Insert into id -> object map.
                 U64 hash = u64_hash(object->id);
-                Pipewire_ObjectList *object_bucket = &store->object_map[hash & (store->object_map_capacity - 1)];
+                Pipewire_ObjectList *object_bucket = &pipewire_state->object_map[hash & (pipewire_state->object_map_capacity - 1)];
                 dll_push_back(object_bucket->first, object_bucket->last, object);
             } break;
             case Pipewire_EventKind_UpdateProperties: {
-                Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
+                Pipewire_Object *object = pipewire_object_from_id(event->id);
 
                 if (!pipewire_object_is_nil(object)) {
                     // NOTE(simon): Free old properties.
                     for (U64 i = 0; i < object->property_count; ++i) {
-                        pipewire_object_store_free_string(store, object->properties[i].key);
-                        pipewire_object_store_free_string(store, object->properties[i].value);
+                        pipewire_free_string(object->properties[i].key);
+                        pipewire_free_string(object->properties[i].value);
                     }
-                    pipewire_object_store_free(store, object->properties, object->property_count * sizeof(Pipewire_Property));
+                    pipewire_free(object->properties, object->property_count * sizeof(Pipewire_Property));
 
                     // NOTE(simon): Allocate new properties.
                     object->property_count = event->property_count;
-                    object->properties = pipewire_object_store_allocate(store, object->property_count * sizeof(Pipewire_Property));
+                    object->properties = pipewire_allocate(object->property_count * sizeof(Pipewire_Property));
                     for (U64 i = 0; i < object->property_count; ++i) {
-                        object->properties[i].key = pipewire_object_store_allocate_string(store, event->properties[i].key);
-                        object->properties[i].value = pipewire_object_store_allocate_string(store, event->properties[i].value);
+                        object->properties[i].key = pipewire_allocate_string(event->properties[i].key);
+                        object->properties[i].value = pipewire_allocate_string(event->properties[i].value);
                     }
                 }
             } break;
             case Pipewire_EventKind_UpdateParameter: {
-                Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
+                Pipewire_Object *object = pipewire_object_from_id(event->id);
 
                 // NOTE(simon): Find old paramter.
                 Pipewire_Parameter *parameter = 0;
@@ -366,21 +265,21 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
                 // NOTE(simon): Free the old parameter.
                 if (parameter) {
                     for (U64 i = 0; i < parameter->count; ++i) {
-                        pipewire_object_store_free(store, parameter->parameters[i], SPA_POD_SIZE(parameter->parameters[i]));
+                        pipewire_free(parameter->parameters[i], SPA_POD_SIZE(parameter->parameters[i]));
                     }
-                    pipewire_object_store_free(store, parameter->parameters, parameter->count * sizeof(*parameter->parameters));
+                    pipewire_free(parameter->parameters, parameter->count * sizeof(*parameter->parameters));
                 }
 
                 // NOTE(simon): Fill the new data.
                 if (!pipewire_object_is_nil(object)) {
                     // NOTE(simon): Allocate.
                     if (!parameter) {
-                        parameter = store->parameter_freelist;
+                        parameter = pipewire_state->parameter_freelist;
                         if (parameter) {
-                            sll_stack_pop(store->parameter_freelist);
+                            sll_stack_pop(pipewire_state->parameter_freelist);
                             memory_zero_struct(parameter);
                         } else {
-                            parameter = arena_push_struct(store->arena, Pipewire_Parameter);
+                            parameter = arena_push_struct(pipewire_state->object_arena, Pipewire_Parameter);
                         }
 
                         // NOTE(simon): Insert.
@@ -391,15 +290,15 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
                     parameter->id    = event->parameter_id;
                     parameter->flags = event->parameter_flags;
                     parameter->count = 0;
-                    parameter->parameters = pipewire_object_store_allocate(store, event->parameter_count * sizeof(*parameter->parameters));
+                    parameter->parameters = pipewire_allocate(event->parameter_count * sizeof(*parameter->parameters));
                     for (Pipewire_ParameterNode *node = event->first_parameter; node; node = node->next, ++parameter->count) {
-                        parameter->parameters[parameter->count] = pipewire_object_store_allocate(store, SPA_POD_SIZE(node->parameter));
+                        parameter->parameters[parameter->count] = pipewire_allocate(SPA_POD_SIZE(node->parameter));
                         memory_copy(parameter->parameters[parameter->count], node->parameter, SPA_POD_SIZE(node->parameter));
                     }
                 }
             } break;
             case Pipewire_EventKind_AddMetadata: {
-                Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
+                Pipewire_Object *object = pipewire_object_from_id(event->id);
 
                 // NOTE(simon): Find the associated metadata based on issuer and key.
                 Pipewire_Metadata *metadata = 0;
@@ -412,21 +311,21 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
 
                 // NOTE(simon): Free the metadata if we found it.
                 if (metadata) {
-                    pipewire_object_store_free_string(store, metadata->key);
-                    pipewire_object_store_free_string(store, metadata->type);
-                    pipewire_object_store_free_string(store, metadata->value);
+                    pipewire_free_string(metadata->key);
+                    pipewire_free_string(metadata->type);
+                    pipewire_free_string(metadata->value);
                 }
 
                 if (!pipewire_object_is_nil(object)) {
                     if (event->metadata_value.size) {
                         // NOTE(simon): Allocate.
                         if (!metadata) {
-                            metadata = store->metadata_freelist;
+                            metadata = pipewire_state->metadata_freelist;
                             if (metadata) {
-                                sll_stack_pop(store->metadata_freelist);
+                                sll_stack_pop(pipewire_state->metadata_freelist);
                                 memory_zero_struct(metadata);
                             } else {
-                                metadata = arena_push_struct(store->arena, Pipewire_Metadata);
+                                metadata = arena_push_struct(pipewire_state->object_arena, Pipewire_Metadata);
                             }
 
                             // NOTE(simon): Add to object.
@@ -435,20 +334,20 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
 
                         // NOTE(simon): Fill.
                         metadata->issuer = event->metadata_issuer;
-                        metadata->key    = pipewire_object_store_allocate_string(store, event->metadata_key);
-                        metadata->type   = pipewire_object_store_allocate_string(store, event->metadata_type);
-                        metadata->value  = pipewire_object_store_allocate_string(store, event->metadata_value);
+                        metadata->key    = pipewire_allocate_string(event->metadata_key);
+                        metadata->type   = pipewire_allocate_string(event->metadata_type);
+                        metadata->value  = pipewire_allocate_string(event->metadata_value);
                     } else {
                         // NOTE(simon): Remove from node.
                         if (metadata) {
                             dll_remove(object->first_metadata, object->last_metadata, metadata);
-                            sll_stack_push(store->metadata_freelist, metadata);
+                            sll_stack_push(pipewire_state->metadata_freelist, metadata);
                         }
                     }
                 }
             } break;
             case Pipewire_EventKind_Destroy: {
-                Pipewire_Object *object = pipewire_object_store_object_from_id(store, event->id);
+                Pipewire_Object *object = pipewire_object_from_id(event->id);
 
                 if (!pipewire_object_is_nil(object)) {
                     // TODO(simon): Free associated resources.
@@ -456,40 +355,122 @@ internal Void pipewire_object_store_apply_events(Pipewire_ObjectStore *store, Pi
                     // NOTE(simon): Free metadata.
                     for (Pipewire_Metadata *metadata = object->first_metadata, *next = 0; metadata; metadata = next) {
                         next = metadata;
-                        pipewire_object_store_free_string(store, metadata->key);
-                        pipewire_object_store_free_string(store, metadata->type);
-                        pipewire_object_store_free_string(store, metadata->value);
+                        pipewire_free_string(metadata->key);
+                        pipewire_free_string(metadata->type);
+                        pipewire_free_string(metadata->value);
                         dll_remove(object->first_metadata, object->last_metadata, metadata);
-                        sll_stack_push(store->metadata_freelist, metadata);
+                        sll_stack_push(pipewire_state->metadata_freelist, metadata);
                     }
 
                     // NOTE(simon): Free parameters.
                     for (Pipewire_Parameter *parameter = object->first_parameter, *next = 0; parameter; parameter = next) {
                         next = parameter->next;
                         for (U64 i = 0; i < parameter->count; ++i) {
-                            pipewire_object_store_free(store, parameter->parameters[i], SPA_POD_SIZE(parameter->parameters[i]));
+                            pipewire_free(parameter->parameters[i], SPA_POD_SIZE(parameter->parameters[i]));
                         }
-                        pipewire_object_store_free(store, parameter->parameters, parameter->count * sizeof(*parameter->parameters));
+                        pipewire_free(parameter->parameters, parameter->count * sizeof(*parameter->parameters));
                         dll_remove(object->first_parameter, object->last_parameter, parameter);
-                        sll_stack_push(store->parameter_freelist, parameter);
+                        sll_stack_push(pipewire_state->parameter_freelist, parameter);
                     }
 
                     // NOTE(simon): Free properties.
                     for (U64 i = 0; i < object->property_count; ++i) {
-                        pipewire_object_store_free_string(store, object->properties[i].key);
-                        pipewire_object_store_free_string(store, object->properties[i].value);
+                        pipewire_free_string(object->properties[i].key);
+                        pipewire_free_string(object->properties[i].value);
                     }
-                    pipewire_object_store_free(store, object->properties, object->property_count * sizeof(Pipewire_Property));
+                    pipewire_free(object->properties, object->property_count * sizeof(Pipewire_Property));
 
                     // NOTE(simon): Remove from id -> object map.
                     U64 hash = u64_hash(object->id);
-                    Pipewire_ObjectList *object_bucket = &store->object_map[hash & (store->object_map_capacity - 1)];
+                    Pipewire_ObjectList *object_bucket = &pipewire_state->object_map[hash & (pipewire_state->object_map_capacity - 1)];
                     dll_remove(object_bucket->first, object_bucket->last, object);
-                    sll_stack_push(store->object_freelist, object);
+                    sll_stack_push(pipewire_state->object_freelist, object);
                 }
             } break;
         }
     }
+}
+
+
+
+// NOTE(simon): Objects.
+
+internal B32 pipewire_object_is_nil(Pipewire_Object *object) {
+    B32 result = !object || object == &pipewire_object_nil;
+    return result;
+}
+
+internal Pipewire_Object *pipewire_object_from_id(U32 id) {
+    Pipewire_Object *result = &pipewire_object_nil;
+
+    U64 hash = u64_hash(id);
+    Pipewire_ObjectList *object_bucket = &pipewire_state->object_map[hash & (pipewire_state->object_map_capacity - 1)];
+    for (Pipewire_Object *object = object_bucket->first; object; object = object->next) {
+        if (object->id == id) {
+            result = object;
+            break;
+        }
+    }
+
+    return result;
+}
+
+internal Void *pipewire_allocate(U64 size) {
+    U64 chunk_index = pipewire_chunk_index_from_size(size);
+    Pipewire_ChunkNode *chunk = 0;
+
+    if (chunk_index == array_count(pipewire_chunk_sizes)) {
+        Pipewire_ChunkNode *best_chunk_previous = 0;
+        Pipewire_ChunkNode *best_chunk = 0;
+        for (Pipewire_ChunkNode *candidate = pipewire_state->chunk_freelist[chunk_index - 1], *previous = 0; candidate; previous = candidate, candidate = candidate->next) {
+            if (candidate->size >= size && (!best_chunk || candidate->size < best_chunk->size)) {
+                best_chunk_previous = previous;
+                best_chunk = candidate;
+            }
+        }
+
+        if (best_chunk) {
+            chunk = best_chunk;
+            if (best_chunk_previous) {
+                best_chunk_previous->next = best_chunk->next;
+            } else {
+                pipewire_state->chunk_freelist[chunk_index - 1] = best_chunk->next;
+            }
+        } else {
+            U64 ceiled_size = u64_ceil_to_power_of_2(size);
+            chunk = (Pipewire_ChunkNode *) arena_push_no_zero(pipewire_state->object_arena, ceiled_size, 16);
+        }
+    } else if (chunk_index != 0) {
+        chunk = pipewire_state->chunk_freelist[chunk_index - 1];
+        if (chunk) {
+            sll_stack_pop(pipewire_state->chunk_freelist[chunk_index - 1]);
+        } else {
+            chunk = (Pipewire_ChunkNode *) arena_push_no_zero(pipewire_state->object_arena, pipewire_chunk_sizes[chunk_index - 1], 16);
+        }
+    }
+
+    Void *result = (Void *) chunk;
+    return result;
+}
+
+internal Void pipewire_free(Void *data, U64 size) {
+    U64 chunk_index = pipewire_chunk_index_from_size(size);
+    if (data && chunk_index) {
+        Pipewire_ChunkNode *chunk = (Pipewire_ChunkNode *) data;
+        chunk->size = u64_ceil_to_power_of_2(size);
+        sll_stack_push(pipewire_state->chunk_freelist[chunk_index - 1], chunk);
+    }
+}
+
+internal Str8 pipewire_allocate_string(Str8 string) {
+    U8 *data = pipewire_allocate(string.size);
+    memory_copy(data, string.data, string.size);
+    Str8 result = str8(data, string.size);
+    return result;
+}
+
+internal Void pipewire_free_string(Str8 string) {
+    pipewire_free(string.data, string.size);
 }
 
 
@@ -649,7 +630,9 @@ internal Void pipewire_init(Void) {
     pipewire_state->c2u_ring_size = megabytes(4);
     pipewire_state->c2u_ring_base = arena_push_array(pipewire_state->arena, U8, pipewire_state->c2u_ring_size);
 
-    pipewire_state->store = pipewire_object_store_create();
+    pipewire_state->object_arena = arena_create();
+    pipewire_state->object_map_capacity = 1024;
+    pipewire_state->object_map = arena_push_array(pipewire_state->object_arena, Pipewire_ObjectList, pipewire_state->object_map_capacity);
 
     pw_init(0, 0);
 
@@ -665,9 +648,9 @@ internal Void pipewire_init(Void) {
 }
 
 internal Void pipewire_deinit(Void) {
-    pipewire_object_store_destroy(pipewire_state->store);
-
     pw_thread_loop_stop(pipewire_state->loop);
+
+    arena_destroy(pipewire_state->object_arena);
 
     // NOTE(simon): Destroy all entities.
     for (U64 i = 0; i < pipewire_state->entity_map_capacity; ++i) {
@@ -697,6 +680,48 @@ internal Void pipewire_deinit(Void) {
     os_mutex_destroy(pipewire_state->c2u_ring_mutex);
 
     arena_destroy(pipewire_state->arena);
+}
+
+internal Void pipewire_tick(Void) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+    Pipewire_EventList events = pipewire_c2u_pop_events(scratch.arena);
+    printf("Events:\n");
+    for (Pipewire_Event *event = events.first; event; event = event->next) {
+        switch (event->kind) {
+            case Pipewire_EventKind_Create: {
+                Str8 kind = pipewire_string_from_object_kind(event->object_kind);
+                printf("  %u.Create %.*s\n", event->id, str8_expand(kind));
+            } break;
+            case Pipewire_EventKind_UpdateProperties: {
+                printf("  %u.UpdateProperties\n", event->id);
+                for (U64 i = 0; i < event->property_count; ++i) {
+                    printf("    %.*s = %.*s\n", str8_expand(event->properties[i].key), str8_expand(event->properties[i].value));
+                }
+            } break;
+            case Pipewire_EventKind_UpdateParameter: {
+                printf("  %u.UpdateParameter %u%s%s\n", event->id, event->parameter_id, event->parameter_flags & SPA_PARAM_INFO_READ ? " Read" : "", event->parameter_flags & SPA_PARAM_INFO_WRITE ? " Write" : "");
+                for (Pipewire_ParameterNode *node = event->first_parameter; node; node = node->next) {
+                    spa_debug_pod(4, 0, (const struct spa_pod *) node->parameter);
+                }
+            } break;
+            case Pipewire_EventKind_AddMetadata: {
+                printf(
+                    "  %u.AddMetadata %u.%.*s: %.*s = %.*s \n",
+                    event->id,
+                    event->metadata_issuer,
+                    str8_expand(event->metadata_key),
+                    str8_expand(event->metadata_type),
+                    str8_expand(event->metadata_value)
+                );
+            } break;
+            case Pipewire_EventKind_Destroy: {
+                printf("  %u.Destroy\n", event->id);
+            } break;
+        }
+    }
+    pipewire_apply_events(events);
+
+    arena_end_temporary(scratch);
 }
 
 
