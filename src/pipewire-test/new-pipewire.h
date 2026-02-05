@@ -13,6 +13,16 @@
 #pragma clang diagnostic pop
 #define global static
 
+typedef struct Pipewire_Volume Pipewire_Volume;
+struct Pipewire_Volume {
+    B32 mute;
+    U32 channel_count;
+    F32 channel_volumes[SPA_AUDIO_MAX_CHANNELS];
+    U32 channel_map[SPA_AUDIO_MAX_CHANNELS];
+    F32 volume_base;
+    F32 volume_step;
+};
+
 typedef struct Pipewire_Handle Pipewire_Handle;
 struct Pipewire_Handle {
     U64 u64[2];
@@ -271,6 +281,8 @@ global Pipewire_State *pipewire_state;
 // NOTE(simon): Helpers.
 internal Str8 pipewire_string_from_object_kind(Pipewire_ObjectKind kind);
 internal U64  pipewire_chunk_index_from_size(U64 size);
+internal U64  pipewire_spa_pod_min_type_size(U32 type);
+internal Void pipewire_parse_volume(struct spa_pod *props, Pipewire_Volume *volume);
 
 // NOTE(simon): Events.
 internal Pipewire_Event    *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
@@ -279,21 +291,31 @@ internal Str8               pipewire_serialized_string_from_event_list(Arena *ar
 internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *arena, Str8 string);
 internal Void               pipewire_apply_events(Pipewire_EventList events);
 
-// NOTE(simon): Objects.
+// NOTE(simon): Objects <-> handle.
 internal B32              pipewire_object_is_nil(Pipewire_Object *object);
+internal Pipewire_Object *pipewire_object_from_handle(Pipewire_Handle handle);
+internal Pipewire_Handle  pipewire_handle_from_object(Pipewire_Object *object);
 internal Pipewire_Object *pipewire_object_from_id(U32 id);
+
+// NOTE(simon): Object alloction/freeing.
 internal Void            *pipewire_allocate(U64 size);
 internal Void             pipewire_free(Void *data, U64 size);
 internal Str8             pipewire_allocate_string(Str8 string);
 internal Void             pipewire_free_string(Str8 string);
 
+// NOTE(simon): Object helpers.
+internal B32              pipewire_object_is_card(Pipewire_Object *object);
+internal Pipewire_Volume  pipewire_volume_from_object(Pipewire_Object *object);
+
 // NOTE(simon): Properties from objects.
+internal B32                pipewire_property_is_nil(Pipewire_Property *property);
 internal Pipewire_Property *pipewire_property_from_name(Pipewire_Object *object, Str8 name);
 internal Str8               pipewire_string_from_property_name(Pipewire_Object *object, Str8 name);
 internal U64Decode          pipewire_u64_from_property_name(Pipewire_Object *object, Str8 name);
 internal Pipewire_Object   *pipewire_object_from_property_name(Pipewire_Object *object, Str8 name);
 
 // NOTE(simon): Parameters from objects.
+internal B32                 pipewire_parameter_is_nil(Pipewire_Parameter *parameter);
 internal Pipewire_Parameter *pipewire_parameter_from_id(Pipewire_Object *object, U32 id);
 
 // NOTE(simon): Entity allocation/freeing.

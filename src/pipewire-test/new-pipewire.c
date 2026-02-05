@@ -49,6 +49,113 @@ internal U64 pipewire_chunk_index_from_size(U64 size) {
     return chunk_index;
 }
 
+internal U64 pipewire_spa_pod_min_type_size(U32 type) {
+    U64 size = 0;
+    switch (type) {
+        case SPA_TYPE_None: {
+            size = 0;
+        } break;
+        case SPA_TYPE_Bool: {
+            size = sizeof(S32);
+        } break;
+        case SPA_TYPE_Id: {
+            size = sizeof(U32);
+        } break;
+        case SPA_TYPE_Int: {
+            size = sizeof(S32);
+        } break;
+        case SPA_TYPE_Long: {
+            size = sizeof(S64);
+        } break;
+        case SPA_TYPE_Float: {
+            size = sizeof(F32);
+        } break;
+        case SPA_TYPE_Double: {
+            size = sizeof(F64);
+        } break;
+        case SPA_TYPE_String: {
+            size = sizeof(U8);
+        } break;
+        case SPA_TYPE_Bytes: {
+            size = 0;
+        } break;
+        case SPA_TYPE_Rectangle: {
+            size = sizeof(struct spa_rectangle);
+        } break;
+        case SPA_TYPE_Fraction: {
+            size = sizeof(struct spa_fraction);
+        } break;
+        case SPA_TYPE_Bitmap: {
+            size = sizeof(U8);
+        } break;
+        case SPA_TYPE_Array: {
+            size = sizeof(struct spa_pod_array_body);
+        } break;
+        case SPA_TYPE_Struct: {
+            size = 0;
+        } break;
+        case SPA_TYPE_Object: {
+            size = sizeof(struct spa_pod_object_body);
+        } break;
+        case SPA_TYPE_Sequence: {
+            size = sizeof(struct spa_pod_choice_body);
+        } break;
+        case SPA_TYPE_Pointer: {
+            size = sizeof(struct spa_pod_pointer_body);
+        } break;
+        case SPA_TYPE_Fd: {
+            size = sizeof(S64);
+        } break;
+        case SPA_TYPE_Choice: {
+            size = sizeof(struct spa_pod_choice_body);
+        } break;
+        case SPA_TYPE_Pod: {
+            size = 0;
+        } break;
+    }
+
+    return size;
+}
+
+internal Void pipewire_parse_volume(struct spa_pod *props, Pipewire_Volume *volume) {
+    bool mute                  = volume->mute;
+    U32  channel_volumes_count = volume->channel_count;
+    U32  channel_map_count     = volume->channel_count;
+
+    struct spa_pod_prop *property = 0;
+    SPA_POD_OBJECT_FOREACH((struct spa_pod_object *) props, property) {
+        switch (property->key) {
+            case SPA_PROP_mute: {
+                spa_pod_get_bool(&property->value, &mute) >= 0;
+            } break;
+            case SPA_PROP_channelVolumes: {
+                channel_volumes_count = spa_pod_copy_array(&property->value, SPA_TYPE_Float, volume->channel_volumes, array_count(volume->channel_volumes));
+            } break;
+            case SPA_PROP_volumeBase: {
+                spa_pod_get_float(&property->value, &volume->volume_base) >= 0;
+            } break;
+            case SPA_PROP_volumeStep: {
+                spa_pod_get_float(&property->value, &volume->volume_step) >= 0;
+            } break;
+            case SPA_PROP_channelMap: {
+                channel_map_count = spa_pod_copy_array(&property->value, SPA_TYPE_Id, volume->channel_map, array_count(volume->channel_map));
+            } break;
+            //SPA_PROP_monitorMute,    SPA_POD_OPT_Bool(&monitor_mute),
+            //SPA_PROP_monitorVolumes, ,
+            //SPA_PROP_softMute,       SPA_POD_OPT_Bool(&soft_mute),
+            //SPA_PROP_softVolumes, ,
+            //SPA_PROP_volumeRampSamples, ,
+            //SPA_PROP_volumeRampStepSamples, ,
+            //SPA_PROP_volumeRampTime, ,
+            //SPA_PROP_volumeRampStepTime, ,
+            //SPA_PROP_volumeRampScale, ,
+        }
+    }
+
+    volume->mute          = mute;
+    volume->channel_count = u32_min(channel_volumes_count, channel_map_count);
+}
+
 
 
 // NOTE(simon): Events.
@@ -393,11 +500,30 @@ internal Void pipewire_apply_events(Pipewire_EventList events) {
 
 
 
-// NOTE(simon): Objects.
+// NOTE(simon): Objects <-> handle.
 
 internal B32 pipewire_object_is_nil(Pipewire_Object *object) {
     B32 result = !object || object == &pipewire_nil_object;
     return result;
+}
+
+internal Pipewire_Object *pipewire_object_from_handle(Pipewire_Handle handle) {
+    Pipewire_Object *object = (Pipewire_Object *) pointer_from_integer(handle.u64[0]);
+    if (!object || object->generation != handle.u64[1]) {
+        object = &pipewire_nil_object;
+    }
+    return object;
+}
+
+internal Pipewire_Handle pipewire_handle_from_object(Pipewire_Object *object) {
+    Pipewire_Handle handle = { 0 };
+
+    if (!pipewire_object_is_nil(object)) {
+        handle.u64[0] = integer_from_pointer(object);
+        handle.u64[1] = object->generation;
+    }
+
+    return handle;
 }
 
 internal Pipewire_Object *pipewire_object_from_id(U32 id) {
@@ -414,6 +540,10 @@ internal Pipewire_Object *pipewire_object_from_id(U32 id) {
 
     return result;
 }
+
+
+
+// NOTE(simon): Object alloction/freeing.
 
 internal Void *pipewire_allocate(U64 size) {
     U64 chunk_index = pipewire_chunk_index_from_size(size);
@@ -473,13 +603,15 @@ internal Void pipewire_free_string(Str8 string) {
     pipewire_free(string.data, string.size);
 }
 
+
+
 internal Pipewire_ObjectArray pipewire_objects_from_kind(Arena *arena, Pipewire_ObjectKind kind) {
     // NOTE(simon): Count the number of objects.
     U64 count = 0;
     for (U64 i = 0; i < pipewire_state->object_map_capacity; ++i) {
         Pipewire_ObjectList *object_list = &pipewire_state->object_map[i];
         for (Pipewire_Object *object = object_list->first; object; object = object->next) {
-            if (object->kind != kind) {
+            if (kind != Pipewire_ObjectKind_Null && object->kind != kind) {
                 continue;
             }
 
@@ -493,7 +625,7 @@ internal Pipewire_ObjectArray pipewire_objects_from_kind(Arena *arena, Pipewire_
     for (U64 i = 0; i < pipewire_state->object_map_capacity; ++i) {
         Pipewire_ObjectList *object_list = &pipewire_state->object_map[i];
         for (Pipewire_Object *object = object_list->first; object; object = object->next) {
-            if (object->kind != kind) {
+            if (kind != Pipewire_ObjectKind_Null && object->kind != kind) {
                 continue;
             }
 
@@ -506,7 +638,75 @@ internal Pipewire_ObjectArray pipewire_objects_from_kind(Arena *arena, Pipewire_
 
 
 
+// NOTE(simon): Object helpers.
+
+internal B32 pipewire_object_is_card(Pipewire_Object *object) {
+    Str8 media_class = pipewire_string_from_property_name(object, str8_literal(PW_KEY_MEDIA_CLASS));
+    B32  result      = object->kind == Pipewire_ObjectKind_Device && str8_equal(media_class, str8_literal("Audio/Device"));
+    return result;
+}
+
+internal Pipewire_Volume pipewire_volume_from_object(Pipewire_Object *object) {
+    Pipewire_Volume volume = { 0 };
+    B32 has_volume = false;
+
+    // NOTE(simon): Query for card.
+    Pipewire_Object *card = pipewire_object_from_property_name(object, str8_literal(PW_KEY_DEVICE_ID));
+    if (!pipewire_object_is_card(card)) {
+        card = &pipewire_nil_object;
+    }
+
+    // NOTE(simon): Query for card device volume.
+    Pipewire_Property *card_profile_device_property = pipewire_property_from_name(object, str8_literal("card.profile.device"));
+    if (!pipewire_property_is_nil(card_profile_device_property)) {
+        U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
+
+        Pipewire_Parameter *route_parameter = pipewire_parameter_from_id(object, SPA_PARAM_Route);
+        for (U64 i = 0; i < route_parameter->count; ++i) {
+            const struct spa_pod_prop *index_prop  = spa_pod_find_prop(route_parameter->parameters[i], 0, SPA_PARAM_ROUTE_index);
+            const struct spa_pod_prop *device_prop = spa_pod_find_prop(route_parameter->parameters[i], 0, SPA_PARAM_ROUTE_device);
+            const struct spa_pod_prop *props_prop  = spa_pod_find_prop(route_parameter->parameters[i], 0, SPA_PARAM_ROUTE_props);
+
+            if (!index_prop || !device_prop) {
+                continue;
+            }
+
+            S32 route_index  = 0;
+            S32 route_device = 0;
+            spa_pod_get_int(&index_prop->value,  &route_index);
+            spa_pod_get_int(&device_prop->value, &route_device);
+
+            if ((U32) route_device != device) {
+                continue;
+            }
+
+            if (props_prop) {
+                pipewire_parse_volume((struct spa_pod *) &props_prop->value, &volume);
+                has_volume = true;
+            }
+        }
+    }
+
+    // NOTE(simon): Query the node for volume.
+    if (!has_volume) {
+        Pipewire_Parameter *props_parameter = pipewire_parameter_from_id(object, SPA_PARAM_Props);
+        if (props_parameter->count >= 1) {
+            pipewire_parse_volume(props_parameter->parameters[0], &volume);
+            has_volume = true;
+        }
+    }
+
+    return volume;
+}
+
+
+
 // NOTE(simon): Properties from objects.
+
+internal B32 pipewire_property_is_nil(Pipewire_Property *property) {
+    B32 result = !property || property == &pipewire_nil_property;
+    return result;
+}
 
 internal Pipewire_Property *pipewire_property_from_name(Pipewire_Object *object, Str8 name) {
     Pipewire_Property *result = &pipewire_nil_property;
@@ -545,6 +745,11 @@ internal Pipewire_Object *pipewire_object_from_property_name(Pipewire_Object *ob
 
 
 // NOTE(simon): Parameters from objects.
+
+internal B32 pipewire_parameter_is_nil(Pipewire_Parameter *parameter) {
+    B32 result = !parameter || parameter == &pipewire_nil_parameter;
+    return result;
+}
 
 internal Pipewire_Parameter *pipewire_parameter_from_id(Pipewire_Object *object, U32 id) {
     Pipewire_Parameter *result = &pipewire_nil_parameter;
@@ -769,42 +974,7 @@ internal Void pipewire_deinit(Void) {
 internal Void pipewire_tick(Void) {
     Arena_Temporary scratch = arena_get_scratch(0, 0);
     Pipewire_EventList events = pipewire_c2u_pop_events(scratch.arena, os_now_nanoseconds() + 200 * 1000);
-    printf("Events:\n");
-    for (Pipewire_Event *event = events.first; event; event = event->next) {
-        switch (event->kind) {
-            case Pipewire_EventKind_Create: {
-                Str8 kind = pipewire_string_from_object_kind(event->object_kind);
-                printf("  %u.Create %.*s\n", event->id, str8_expand(kind));
-            } break;
-            case Pipewire_EventKind_UpdateProperties: {
-                printf("  %u.UpdateProperties\n", event->id);
-                for (U64 i = 0; i < event->property_count; ++i) {
-                    printf("    %.*s = %.*s\n", str8_expand(event->properties[i].key), str8_expand(event->properties[i].value));
-                }
-            } break;
-            case Pipewire_EventKind_UpdateParameter: {
-                printf("  %u.UpdateParameter %u%s%s\n", event->id, event->parameter_id, event->parameter_flags & SPA_PARAM_INFO_READ ? " Read" : "", event->parameter_flags & SPA_PARAM_INFO_WRITE ? " Write" : "");
-                for (Pipewire_ParameterNode *node = event->first_parameter; node; node = node->next) {
-                    spa_debug_pod(4, 0, (const struct spa_pod *) node->parameter);
-                }
-            } break;
-            case Pipewire_EventKind_AddMetadata: {
-                printf(
-                    "  %u.AddMetadata %u.%.*s: %.*s = %.*s \n",
-                    event->id,
-                    event->metadata_issuer,
-                    str8_expand(event->metadata_key),
-                    str8_expand(event->metadata_type),
-                    str8_expand(event->metadata_value)
-                );
-            } break;
-            case Pipewire_EventKind_Destroy: {
-                printf("  %u.Destroy\n", event->id);
-            } break;
-        }
-    }
     pipewire_apply_events(events);
-
     arena_end_temporary(scratch);
 }
 
