@@ -100,6 +100,6 @@ internal Void                 os_condition_variable_destroy(OS_ConditionVariable
 internal Void                 os_condition_variable_signal(OS_ConditionVariable condition_variable);
 internal Void                 os_condition_variable_broadcast(OS_ConditionVariable condition_variable);
 // NOTE(simon): A end_ns of U64_MAX means wait forever.
-internal Void                 os_condition_variable_wait(OS_ConditionVariable condition_variable, OS_Mutex mutex, U64 end_ns);
+internal B32                  os_condition_variable_wait(OS_ConditionVariable condition_variable, OS_Mutex mutex, U64 end_ns);
 
 #endif // OS_ESSENTIAL_H

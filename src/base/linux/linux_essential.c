@@ -433,10 +433,7 @@ internal Str8 os_file_path(Arena *arena, OS_SystemPath path) {
 
 internal DateTime os_now_universal_time(Void) {
     struct timeval time = { 0 };
-    if (gettimeofday(&time, 0) == -1) {
-        // TODO: Handle error
-        return (DateTime) { 0 };
-    }
+    gettimeofday(&time, 0);
 
     struct tm deconstructed_time = { 0 };
     if (gmtime_r(&time.tv_sec, &deconstructed_time) != &deconstructed_time) {
@@ -473,7 +470,7 @@ internal DateTime os_universal_time_from_local(DateTime *date_time) {
 
 internal U64 os_now_nanoseconds(Void) {
     struct timespec time = { 0 };
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &time) == -1) {
+    if (clock_gettime(CLOCK_REALTIME, &time) == -1) {
         // TODO: Handle error
     }
     U64 nanoseconds = (U64) time.tv_sec * 1000000000 + (U64) time.tv_nsec;
@@ -695,21 +692,21 @@ internal Void os_condition_variable_broadcast(OS_ConditionVariable handle) {
     pthread_cond_broadcast(&resource->condition_variable);
 }
 
-internal Void os_condition_variable_wait(OS_ConditionVariable condition_variable_handle, OS_Mutex mutex_handle, U64 end_ns) {
+internal B32 os_condition_variable_wait(OS_ConditionVariable condition_variable_handle, OS_Mutex mutex_handle, U64 end_ns) {
     Linux_Resource *condition_variable = (Linux_Resource *) pointer_from_integer(condition_variable_handle.u64[0]);
     Linux_Resource *mutex = (Linux_Resource *) pointer_from_integer(mutex_handle.u64[0]);
+
+    B32 result = true;
     if (end_ns == U64_MAX) {
         pthread_cond_wait(&condition_variable->condition_variable, &mutex->mutex);
     } else {
-        // TODO(simon): Implement this! Make sure that the we use the same base
-        // time as the function we are calling. We probably need to decide on a
-        // consistent time base for the entire codebase.
-        assert(false);
-        //struct timespec absolute_time = { 0 };
-        //absolute_time.tv_sec = ...;
-        //absolute_time.tv_nsec = ...;
-        //pthread_cond_timedwait(&condition_variable->handle, &mutex->handle, &absolute_time);
+        struct timespec absolute_time = { 0 };
+        absolute_time.tv_sec = end_ns / 1000000000;
+        absolute_time.tv_nsec = end_ns % 1000000000;
+        int wait_result = pthread_cond_timedwait(&condition_variable->condition_variable, &mutex->mutex, &absolute_time);
+        result = wait_result != ETIMEDOUT;
     }
+    return result;
 }
 
 
