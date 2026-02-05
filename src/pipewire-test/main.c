@@ -16,8 +16,8 @@
 #include "src/ui/ui_include.c"
 #include "src/nat/nat_include.c"
 
-#include "pipewire.h"
-#include "pipewire.c"
+#include "new-pipewire.h"
+#include "new-pipewire.c"
 
 #include "core.h"
 #include "core.c"
@@ -153,6 +153,7 @@ internal S32 os_run(Str8List arguments) {
     gfx_set_update_function(update);
 
     pipewire_init();
+    pipewire_set_wakeup_hook(gfx_send_wakeup_event);
 
     while (state->first_window) {
         update();

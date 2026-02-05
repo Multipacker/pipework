@@ -615,66 +615,28 @@ internal B32 drag_drop(Void) {
 
 
 
-internal Str8 kind_from_object(Pipewire_Object *object) {
-    Str8 result = { 0 };
-
-    switch (object->kind) {
-        case Pipewire_Object_Null: {
-            result = str8_literal("Null");
-        } break;
-        case Pipewire_Object_Module: {
-            result = str8_literal("Module");
-        } break;
-        case Pipewire_Object_Factory: {
-            result = str8_literal("Factory");
-        } break;
-        case Pipewire_Object_Client: {
-            result = str8_literal("Client");
-        } break;
-        case Pipewire_Object_Device: {
-            result = str8_literal("Device");
-        } break;
-        case Pipewire_Object_Node: {
-            result = str8_literal("Node");
-        } break;
-        case Pipewire_Object_Port: {
-            result = str8_literal("Port");
-        } break;
-        case Pipewire_Object_Link: {
-            result = str8_literal("Link");
-        } break;
-        case Pipewire_Object_Metadata: {
-            result = str8_literal("Metadata");
-        } break;
-        case Pipewire_Object_COUNT: {
-        } break;
-    }
-
-    return result;
-}
-
 internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
     Str8 name = { 0 };
 
     switch (object->kind) {
-        case Pipewire_Object_Null: {
+        case Pipewire_ObjectKind_Null: {
             name = str8_literal("Null");
         } break;
-        case Pipewire_Object_Module: {
+        case Pipewire_ObjectKind_Module: {
             name = pipewire_string_from_property_name(object, str8_literal("module.name"));
 
             if (!name.size) {
                 name = str8_format(arena, "Module %u", object->id);
             }
         } break;
-        case Pipewire_Object_Factory: {
+        case Pipewire_ObjectKind_Factory: {
             name = pipewire_string_from_property_name(object, str8_literal("factory.name"));
 
             if (!name.size) {
                 name = str8_format(arena, "Factory %u", object->id);
             }
         } break;
-        case Pipewire_Object_Client: {
+        case Pipewire_ObjectKind_Client: {
             name = pipewire_string_from_property_name(object, str8_literal("client.name"));
 
             if (!name.size) {
@@ -685,7 +647,7 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
                 name = str8_format(arena, "Client %u", object->id);
             }
         } break;
-        case Pipewire_Object_Device: {
+        case Pipewire_ObjectKind_Device: {
             name = pipewire_string_from_property_name(object, str8_literal("device.nick"));
 
             if (!name.size) {
@@ -696,8 +658,12 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
                 name = str8_format(arena, "Device %u", object->id);
             }
         } break;
-        case Pipewire_Object_Node: {
+        case Pipewire_ObjectKind_Node: {
             name = pipewire_string_from_property_name(object, str8_literal("node.nick"));
+
+            if (!name.size) {
+                name = pipewire_string_from_property_name(object, str8_literal("node.description"));
+            }
 
             if (!name.size) {
                 name = pipewire_string_from_property_name(object, str8_literal("node.name"));
@@ -707,7 +673,7 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
                 name = str8_format(arena, "Node %u", object->id);
             }
         } break;
-        case Pipewire_Object_Port: {
+        case Pipewire_ObjectKind_Port: {
             name = pipewire_string_from_property_name(object, str8_literal("port.alias"));
 
             if (!name.size) {
@@ -718,17 +684,17 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
                 name = str8_format(arena, "Port %u", object->id);
             }
         } break;
-        case Pipewire_Object_Link: {
+        case Pipewire_ObjectKind_Link: {
             name = str8_format(arena, "Link %u", object->id);
         } break;
-        case Pipewire_Object_Metadata: {
+        case Pipewire_ObjectKind_Metadata: {
             name = pipewire_string_from_property_name(object, str8_literal("metadata.name"));
 
             if (!name.size) {
                 name = str8_format(arena, "Metadata %u", object->id);
             }
         } break;
-        case Pipewire_Object_COUNT: {
+        case Pipewire_ObjectKind_COUNT: {
         } break;
     }
 
@@ -774,9 +740,10 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
         PropertyRow *first_row = 0;
         PropertyRow *last_row  = 0;
 
-        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
+        Pipewire_ObjectArray objects = pipewire_objects_from_kind(scratch.arena, Pipewire_ObjectKind_Null);
+        for (U64 i = 0; i < objects.count; ++i) {
             PropertyRow *row = arena_push_struct(scratch.arena, PropertyRow);
-            row->reference = object;
+            row->reference = objects.objects[i];
             row->value = name_from_object(scratch.arena, row->reference);
 
             // NOTE(simon): Add generated row to output.
@@ -865,9 +832,10 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
 
         PropertyRow *first_row = 0;
         PropertyRow *last_row  = 0;
-        for (Pipewire_Property *property = selected_object->first_property; property; property = property->next) {
+        for (U64 i = 0; i < selected_object->property_count; ++i) {
+            Pipewire_Property *property = &selected_object->properties[i];
             PropertyRow *row = arena_push_struct(scratch.arena, PropertyRow);
-            row->label = property->name;
+            row->label = property->key;
 
             // NOTE(simon): Properties from https://docs.pipewire.org/group__pw__keys.html
             if (
@@ -1098,24 +1066,27 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
         Work *last_work = 0;
         {
             U64 index = 0;
-            for (Pipewire_Parameter *parameter = selected_object->first_parameter; parameter; parameter = parameter->next, ++index) {
-                Work *work = arena_push_struct(frame_arena(), Work);
-                work->label = str8_cstr((CStr) spa_debug_type_find_short_name(spa_type_param, parameter->id));
-                work->body = SPA_POD_BODY(parameter->param);
-                work->type = parameter->param->type;
-                work->size = parameter->param->size;
-                work->type_info = spa_debug_type_find(SPA_TYPE_ROOT, parameter->param->type);
-                // TODO(simon): There isn't really an ideal way to key this as
-                // we can have multiple of every property. Maybe we should
-                // group them by id and have a list in there?
-                work->hash = hash_combine(
-                    hash_combine(
-                        u64_hash(state->selected_object.u64[0]),
-                        u64_hash(state->selected_object.u64[1])
-                    ),
-                    u64_hash(index)
-                );
-                sll_queue_push(first_work, last_work, work);
+            for (Pipewire_Parameter *parameter = selected_object->first_parameter; parameter; parameter = parameter->next) {
+                for (U64 i = 0; i < parameter->count; ++i, ++index) {
+                    struct spa_pod *param = parameter->parameters[i];
+                    Work *work = arena_push_struct(frame_arena(), Work);
+                    work->label = str8_cstr((CStr) spa_debug_type_find_short_name(spa_type_param, parameter->id));
+                    work->body = SPA_POD_BODY(param);
+                    work->type = param->type;
+                    work->size = param->size;
+                    work->type_info = spa_debug_type_find(SPA_TYPE_ROOT, param->type);
+                    // TODO(simon): There isn't really an ideal way to key this as
+                    // we can have multiple of every property. Maybe we should
+                    // group them by id and have a list in there?
+                    work->hash = hash_combine(
+                        hash_combine(
+                            u64_hash(state->selected_object.u64[0]),
+                            u64_hash(state->selected_object.u64[1])
+                        ),
+                        u64_hash(index)
+                    );
+                    sll_queue_push(first_work, last_work, work);
+                }
             }
         }
 
@@ -1530,26 +1501,24 @@ internal V4F32 color_from_port_media_type(Pipewire_Object *object) {
 
     // NOTE(simon): Look for medaType on Format
     const struct spa_pod *media_type_pod = 0;
-    for (Pipewire_Parameter *parameter = object->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
-        if (parameter->id == SPA_PARAM_Format) {
-            const struct spa_pod_prop *media_type_property = spa_pod_find_prop(parameter->param, 0, SPA_FORMAT_mediaType);
-            if (media_type_property) {
-                spa_pod_get_id(&media_type_property->value, &media_type);
-                break;
-            }
+    Pipewire_Parameter *format_parameter = pipewire_parameter_from_id(object, SPA_PARAM_Format);
+    for (U64 i = 0; i < format_parameter->count; ++i) {
+        const struct spa_pod_prop *media_type_property = spa_pod_find_prop(format_parameter->parameters[i], 0, SPA_FORMAT_mediaType);
+        if (media_type_property) {
+            spa_pod_get_id(&media_type_property->value, &media_type);
+            break;
         }
     }
 
     // NOTE(simon): Look for medaType on EnumFormat This assumes that a port
     // cannot support multiple differnet media types, only different subtypes.
     if (media_type == SPA_MEDIA_TYPE_unknown) {
-        for (Pipewire_Parameter *parameter = object->first_parameter; !pipewire_parameter_is_nil(parameter); parameter = parameter->next) {
-            if (parameter->id == SPA_PARAM_EnumFormat) {
-                const struct spa_pod_prop *media_type_property = spa_pod_find_prop(parameter->param, 0, SPA_FORMAT_mediaType);
-                if (media_type_property) {
-                    spa_pod_get_id(&media_type_property->value, &media_type);
-                    break;
-                }
+        Pipewire_Parameter *enum_format_parameter = pipewire_parameter_from_id(object, SPA_PARAM_EnumFormat);
+        for (U64 i = 0; i < enum_format_parameter->count; ++i) {
+            const struct spa_pod_prop *media_type_property = spa_pod_find_prop(enum_format_parameter->parameters[i], 0, SPA_FORMAT_mediaType);
+            if (media_type_property) {
+                spa_pod_get_id(&media_type_property->value, &media_type);
+                break;
             }
         }
     }
@@ -1593,20 +1562,9 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     TabState *tab_state = tab_state_from_type(TabState);
 
     // NOTE(simon): Collect pipewire objects.
-    S64 object_count = { 0 };
-    Pipewire_Object **objects = 0;
-    {
-        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-            ++object_count;
-        }
-
-        objects = arena_push_array_no_zero(frame_arena(), Pipewire_Object *, (U64) object_count);
-        Pipewire_Object **object_ptr = objects;
-        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-            *object_ptr = object;
-            ++object_ptr;
-        }
-    }
+    Pipewire_ObjectArray nodes = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Node);
+    Pipewire_ObjectArray ports = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Port);
+    Pipewire_ObjectArray links = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Link);
 
     V2F32 tab_size    = r2f32_size(tab_rectangle);
     F32   row_height  = 2.0f * (F32) ui_font_size_top();
@@ -1634,11 +1592,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
         PortNode *first_port = 0;
         PortNode *last_port  = 0;
 
-        for (S64 i = 0; i < object_count; ++i) {
-            Pipewire_Object *node = objects[i];
-            if (node->kind != Pipewire_Object_Node) {
-                continue;
-            }
+        for (U64 i = 0; i < nodes.count; ++i) {
+            Pipewire_Object *node = nodes.objects[i];
 
             // NOTE(simon): Count number of input and output ports and
             // determine the maximum width of input and output names.
@@ -1646,9 +1601,14 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             U32 output_port_count = 0;
             F32 input_port_name_max_width  = 0.0f;
             F32 output_port_name_max_width = 0.0f;
-            for (Pipewire_Object *child = node->first; !pipewire_object_is_nil(child); child = child->next) {
-                Str8 direction = pipewire_string_from_property_name(child, str8_literal("port.direction"));
-                Str8 port_name = pipewire_string_from_property_name(child, str8_literal("port.name"));
+            for (U64 j = 0; j < ports.count; ++j) {
+                Pipewire_Object *port = ports.objects[j];
+                if (pipewire_u64_from_property_name(port, str8_literal(PW_KEY_NODE_ID)).value != node->id) {
+                    continue;
+                }
+
+                Str8 direction = pipewire_string_from_property_name(port, str8_literal("port.direction"));
+                Str8 port_name = pipewire_string_from_property_name(port, str8_literal("port.name"));
                 F32 port_name_width = font_cache_size_from_font_text_size(ui_font_top(), port_name, ui_font_size_top()).width + 2.0f * ui_text_x_padding_top();
                 if (str8_equal(direction, str8_literal("in"))) {
                     ++input_port_count;
@@ -1750,14 +1710,20 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                 }
 
                 // NOTE(simon): Build ports.
+                // TODO(simon): Sort ports by channel id.
                 U32 input_port_index = 0;
                 U32 output_port_index = 0;
-                for (Pipewire_Object *child = node->first; !pipewire_object_is_nil(child); child = child->next) {
-                    PortNode *port_node = arena_push_struct(frame_arena(), PortNode);
-                    port_node->port = child;
+                for (U64 j = 0; j < ports.count; ++j) {
+                    Pipewire_Object *port = ports.objects[j];
+                    if (pipewire_u64_from_property_name(port, str8_literal(PW_KEY_NODE_ID)).value != node->id) {
+                        continue;
+                    }
 
-                    Str8 direction = pipewire_string_from_property_name(child, str8_literal("port.direction"));
-                    Str8 port_name = pipewire_string_from_property_name(child, str8_literal("port.name"));
+                    PortNode *port_node = arena_push_struct(frame_arena(), PortNode);
+                    port_node->port = port;
+
+                    Str8 direction = pipewire_string_from_property_name(port, str8_literal("port.direction"));
+                    Str8 port_name = pipewire_string_from_property_name(port, str8_literal("port.name"));
 
                     V2F32 local_position = { 0 };
                     local_position.y = 0.5f * row_height;
@@ -1786,7 +1752,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                     UI_Input port_input = { 0 };
                     ui_parent(label) {
                         UI_Palette palette = { 0 };
-                        palette.background = color_from_port_media_type(child);
+                        palette.background = color_from_port_media_type(port);
                         ui_palette_next(palette);
                         ui_hover_cursor_next(Gfx_Cursor_Hand);
                         ui_fixed_x_next(local_position.x - port_radius);
@@ -1794,12 +1760,12 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                         ui_width_next(ui_size_pixels(2.0f * port_radius, 1.0f));
                         ui_height_next(ui_size_pixels(2.0f * port_radius, 1.0f));
                         ui_corner_radius_next(port_radius);
-                        UI_Box *port = ui_create_box_from_string_format(UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive | UI_BoxFlag_Clickable | UI_BoxFlag_DropTarget, "###port_%p", child);
-                        port_input = ui_input_from_box(port);
+                        UI_Box *port_box = ui_create_box_from_string_format(UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive | UI_BoxFlag_Clickable | UI_BoxFlag_DropTarget, "###port_%p", port);
+                        port_input = ui_input_from_box(port_box);
                     }
 
                     if (port_input.flags & UI_InputFlag_Dragging && v2f32_length(ui_drag_delta()) > 10.0f) {
-                        context_scope(.port = pipewire_handle_from_object(child)) {
+                        context_scope(.port = pipewire_handle_from_object(port)) {
                             drag_begin(ContextMember_Port);
                         }
                     }
@@ -1807,7 +1773,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                     if (drag_is_active() && state->drag_context_member == ContextMember_Port && ui_drop_hot_key() == port_input.box->key) {
                         if (drag_drop()) {
                             Pipewire_Object *output_port = pipewire_object_from_handle(state->drag_context->port);
-                            Pipewire_Object *input_port  = child;
+                            Pipewire_Object *input_port  = port;
 
                             Str8 output_direction = pipewire_string_from_property_name(output_port, str8_literal("port.direction"));
                             Str8 input_direction  = pipewire_string_from_property_name(input_port,  str8_literal("port.direction"));
@@ -1818,11 +1784,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                             }
 
                             Pipewire_Object *existing_link = &pipewire_nil_object;
-                            for (S64 j = 0; j < object_count; ++j) {
-                                Pipewire_Object *link = objects[j];
-                                if (link->kind != Pipewire_Object_Link) {
-                                    continue;
-                                }
+                            for (U64 k = 0; k < links.count; ++k) {
+                                Pipewire_Object *link = links.objects[k];
 
                                 U32 output_port_id = (U32) pipewire_u64_from_property_name(link, str8_literal("link.output.port")).value;
                                 U32 input_port_id  = (U32) pipewire_u64_from_property_name(link, str8_literal("link.input.port")).value;
@@ -1834,9 +1797,9 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
 
                             if (str8_equal(output_direction, str8_literal("out")) && str8_equal(input_direction, str8_literal("in"))) {
                                 if (!pipewire_object_is_nil(existing_link)) {
-                                    pipewire_remove(pipewire_handle_from_object(existing_link));
+                                    //pipewire_remove(pipewire_handle_from_object(existing_link));
                                 } else {
-                                    pipewire_link(pipewire_handle_from_object(output_port), pipewire_handle_from_object(input_port));
+                                    //pipewire_link(pipewire_handle_from_object(output_port), pipewire_handle_from_object(input_port));
                                 }
                             }
                         }
@@ -1868,17 +1831,14 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
         // NOTE(simon): Draw connections.
         Draw_List *connections = draw_list_create();
         draw_list_scope(connections)
-        for (S64 i = 0; i < object_count; ++i) {
-            Pipewire_Object *node = objects[i];
-            if (node->kind != Pipewire_Object_Link) {
-                continue;
-            }
+        for (U64 i = 0; i < links.count; ++i) {
+            Pipewire_Object *link = links.objects[i];
 
             // NOTE(simon): Find input and output ports.
             PortNode *output_port = 0;
             PortNode *input_port  = 0;
-            U32 output_port_id = (U32) pipewire_u64_from_property_name(node, str8_literal("link.output.port")).value;
-            U32 input_port_id  = (U32) pipewire_u64_from_property_name(node, str8_literal("link.input.port")).value;
+            U32 output_port_id = (U32) pipewire_u64_from_property_name(link, str8_literal("link.output.port")).value;
+            U32 input_port_id  = (U32) pipewire_u64_from_property_name(link, str8_literal("link.input.port")).value;
             for (PortNode *port_node = first_port; port_node; port_node = port_node->next) {
                 if (port_node->port->id == output_port_id) {
                     output_port = port_node;
@@ -2271,26 +2231,26 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
 
     TabState *tab_state = tab_state_from_type(TabState);
 
+    Pipewire_ObjectArray nodes = pipewire_objects_from_kind(scratch.arena, Pipewire_ObjectKind_Node);
+
     // NOTE(simon): Collect nodes with volume.
     VolumeRow *rows = 0;
     S64 row_count = 0;
     {
         VolumeRow *first_row = 0;
         VolumeRow *last_row  = 0;
-        for (Pipewire_Object *object = pipewire_state->first_object; object; object = object->all_next) {
-            if (object->kind != Pipewire_Object_Node) {
-                continue;
-            }
+        for (U64 i = 0; i < nodes.count; ++i) {
+            Pipewire_Object *node = nodes.objects[i];
 
-            Pipewire_Volume volume = pipewire_volume_from_node(object);
+            Pipewire_Volume volume = pipewire_volume_from_object(node);
             if (volume.channel_count == 0) {
                 continue;
             }
 
             VolumeRow *row = arena_push_struct(scratch.arena, VolumeRow);
-            row->label  = name_from_object(scratch.arena, object);
+            row->label  = name_from_object(scratch.arena, node);
             row->volume = volume;
-            row->object = object;
+            row->object = node;
 
             sll_queue_push(first_row, last_row, row);
             ++row_count;
@@ -2393,7 +2353,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         }
 
         if (mute_input.flags & UI_InputFlag_LeftClicked || slider_input.flags & UI_InputFlag_LeftDragging) {
-            pipewire_set_node_volume(pipewire_handle_from_object(row->object), row->volume);
+            //pipewire_set_node_volume(pipewire_handle_from_object(row->object), row->volume);
         }
     }
 
@@ -2419,6 +2379,13 @@ internal Void update(Void) {
         ++depth;
         graphics_events = gfx_get_events(scratch.arena, state->frames_to_render == 0);
         --depth;
+    }
+
+
+
+    // NOTE(simon): Pull in new pipewire events.
+    if (depth == 0) {
+        pipewire_tick();
     }
 
 
@@ -4015,10 +3982,6 @@ internal Void update(Void) {
 
     if (PROFILE_BUILD) {
         request_frame();
-    }
-
-    if (depth == 0) {
-        pipewire_tick();
     }
 
     ++state->frame_index;
