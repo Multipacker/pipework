@@ -432,15 +432,15 @@ internal Str8 os_file_path(Arena *arena, OS_SystemPath path) {
 }
 
 internal DateTime os_now_universal_time(Void) {
-    struct timeval time = { 0 };
-    gettimeofday(&time, 0);
+    struct timespec time = { 0 };
+    clock_gettime(CLOCK_REALTIME, &time);
 
     struct tm deconstructed_time = { 0 };
     if (gmtime_r(&time.tv_sec, &deconstructed_time) != &deconstructed_time) {
         // TODO: Handle error
     }
 
-    return linux_date_time_from_tm_and_milliseconds(&deconstructed_time, (U16) (time.tv_usec / 1000));
+    return linux_date_time_from_tm_and_milliseconds(&deconstructed_time, (U16) (time.tv_nsec / 1000000));
 }
 
 internal DateTime os_local_time_from_universal(DateTime *date_time) {
