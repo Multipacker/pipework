@@ -250,6 +250,7 @@ struct Pipewire_State {
     U64 c2u_ring_read_position;
     U64 c2u_ring_size;
     U8 *c2u_ring_base;
+    VoidFunction *wakeup_hook;
 
     // NOTE(simon): Objects allocators.
     Arena *object_arena;
@@ -311,9 +312,10 @@ internal Void pipewire_synchronize(Void);
 internal Void pipewire_init(Void);
 internal Void pipewire_deinit(Void);
 internal Void pipewire_tick(Void);
+internal Void pipewire_set_wakeup_hook(VoidFunction *wakeup_hook);
 
 // NOTE(simon): Control to user thread communication.
-internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena);
+internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena, U64 end_ns);
 internal Void               pipewire_c2u_push_events(Pipewire_EventList events);
 
 

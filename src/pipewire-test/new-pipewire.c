@@ -768,7 +768,7 @@ internal Void pipewire_deinit(Void) {
 
 internal Void pipewire_tick(Void) {
     Arena_Temporary scratch = arena_get_scratch(0, 0);
-    Pipewire_EventList events = pipewire_c2u_pop_events(scratch.arena);
+    Pipewire_EventList events = pipewire_c2u_pop_events(scratch.arena, os_now_nanoseconds() + 200 * 1000);
     printf("Events:\n");
     for (Pipewire_Event *event = events.first; event; event = event->next) {
         switch (event->kind) {
@@ -808,11 +808,15 @@ internal Void pipewire_tick(Void) {
     arena_end_temporary(scratch);
 }
 
+internal Void pipewire_set_wakeup_hook(VoidFunction *wakeup_hook) {
+    pipewire_state->wakeup_hook = wakeup_hook;
+}
+
 
 
 // NOTE(simon): Control to user thread communication.
 
-internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena) {
+internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena, U64 end_ns) {
     Arena_Temporary scratch = arena_get_scratch(&arena, 1);
     Str8 serialized_events = { 0 };
     os_mutex_scope(pipewire_state->c2u_ring_mutex)
@@ -824,9 +828,15 @@ internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena) {
             pipewire_state->c2u_ring_read_position += ring_read(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_read_position, serialized_events.data, serialized_events.size);
             break;
         }
-        os_condition_variable_wait(pipewire_state->c2u_ring_condition_variable, pipewire_state->c2u_ring_mutex, U64_MAX);
+
+        if (!os_condition_variable_wait(pipewire_state->c2u_ring_condition_variable, pipewire_state->c2u_ring_mutex, end_ns)) {
+            break;
+        }
     }
-    os_condition_variable_signal(pipewire_state->c2u_ring_condition_variable);
+
+    if (serialized_events.size) {
+        os_condition_variable_signal(pipewire_state->c2u_ring_condition_variable);
+    }
 
     Pipewire_EventList events = pipewire_event_list_from_serialized_string(arena, serialized_events);
     arena_end_temporary(scratch);
@@ -848,6 +858,11 @@ internal Void pipewire_c2u_push_events(Pipewire_EventList events) {
         os_condition_variable_wait(pipewire_state->c2u_ring_condition_variable, pipewire_state->c2u_ring_mutex, U64_MAX);
     }
     os_condition_variable_signal(pipewire_state->c2u_ring_condition_variable);
+
+    if (pipewire_state->wakeup_hook) {
+        pipewire_state->wakeup_hook();
+    }
+
     arena_end_temporary(scratch);
 }
 
