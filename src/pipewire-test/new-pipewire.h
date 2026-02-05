@@ -53,6 +53,8 @@ struct Pipewire_Property {
     Str8 value;
 };
 
+global Pipewire_Property pipewire_nil_property;
+
 
 
 // NOTE(simon): Events.
@@ -133,6 +135,8 @@ struct Pipewire_Parameter {
     struct spa_pod **parameters;
 };
 
+global Pipewire_Parameter pipewire_nil_parameter;
+
 typedef struct Pipewire_Object Pipewire_Object;
 struct Pipewire_Object {
     Pipewire_Object *next;
@@ -160,12 +164,18 @@ struct Pipewire_Object {
     Pipewire_Metadata *last_metadata;
 };
 
-global Pipewire_Object pipewire_object_nil = { 0 };
+global Pipewire_Object pipewire_nil_object = { 0 };
 
 typedef struct Pipewire_ObjectList Pipewire_ObjectList;
 struct Pipewire_ObjectList {
     Pipewire_Object *first;
     Pipewire_Object *last;
+};
+
+typedef struct Pipewire_ObjectArray Pipewire_ObjectArray;
+struct Pipewire_ObjectArray {
+    Pipewire_Object **objects;
+    U64               count;
 };
 
 
@@ -275,6 +285,15 @@ internal Void            *pipewire_allocate(U64 size);
 internal Void             pipewire_free(Void *data, U64 size);
 internal Str8             pipewire_allocate_string(Str8 string);
 internal Void             pipewire_free_string(Str8 string);
+
+// NOTE(simon): Properties from objects.
+internal Pipewire_Property *pipewire_property_from_name(Pipewire_Object *object, Str8 name);
+internal Str8               pipewire_string_from_property_name(Pipewire_Object *object, Str8 name);
+internal U64Decode          pipewire_u64_from_property_name(Pipewire_Object *object, Str8 name);
+internal Pipewire_Object   *pipewire_object_from_property_name(Pipewire_Object *object, Str8 name);
+
+// NOTE(simon): Parameters from objects.
+internal Pipewire_Parameter *pipewire_parameter_from_id(Pipewire_Object *object, U32 id);
 
 // NOTE(simon): Entity allocation/freeing.
 internal Pipewire_Entity *pipewire_entity_allocate(U32 id);

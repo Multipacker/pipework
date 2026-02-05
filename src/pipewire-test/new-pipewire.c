@@ -396,12 +396,12 @@ internal Void pipewire_apply_events(Pipewire_EventList events) {
 // NOTE(simon): Objects.
 
 internal B32 pipewire_object_is_nil(Pipewire_Object *object) {
-    B32 result = !object || object == &pipewire_object_nil;
+    B32 result = !object || object == &pipewire_nil_object;
     return result;
 }
 
 internal Pipewire_Object *pipewire_object_from_id(U32 id) {
-    Pipewire_Object *result = &pipewire_object_nil;
+    Pipewire_Object *result = &pipewire_nil_object;
 
     U64 hash = u64_hash(id);
     Pipewire_ObjectList *object_bucket = &pipewire_state->object_map[hash & (pipewire_state->object_map_capacity - 1)];
@@ -471,6 +471,90 @@ internal Str8 pipewire_allocate_string(Str8 string) {
 
 internal Void pipewire_free_string(Str8 string) {
     pipewire_free(string.data, string.size);
+}
+
+internal Pipewire_ObjectArray pipewire_objects_from_kind(Arena *arena, Pipewire_ObjectKind kind) {
+    // NOTE(simon): Count the number of objects.
+    U64 count = 0;
+    for (U64 i = 0; i < pipewire_state->object_map_capacity; ++i) {
+        Pipewire_ObjectList *object_list = &pipewire_state->object_map[i];
+        for (Pipewire_Object *object = object_list->first; object; object = object->next) {
+            if (object->kind != kind) {
+                continue;
+            }
+
+            ++count;
+        }
+    }
+
+    // NOTE(simon): Collect objects.
+    Pipewire_ObjectArray result = { 0 };
+    result.objects = arena_push_array(arena, Pipewire_Object *, count);
+    for (U64 i = 0; i < pipewire_state->object_map_capacity; ++i) {
+        Pipewire_ObjectList *object_list = &pipewire_state->object_map[i];
+        for (Pipewire_Object *object = object_list->first; object; object = object->next) {
+            if (object->kind != kind) {
+                continue;
+            }
+
+            result.objects[result.count++] = object;
+        }
+    }
+
+    return result;
+}
+
+
+
+// NOTE(simon): Properties from objects.
+
+internal Pipewire_Property *pipewire_property_from_name(Pipewire_Object *object, Str8 name) {
+    Pipewire_Property *result = &pipewire_nil_property;
+    for (U64 i = 0; i < object->property_count; ++i) {
+        Pipewire_Property *property = &object->properties[i];
+        if (str8_equal(property->key, name)) {
+            result = property;
+            break;
+        }
+    }
+    return result;
+}
+
+internal Str8 pipewire_string_from_property_name(Pipewire_Object *object, Str8 name) {
+    Pipewire_Property *property = pipewire_property_from_name(object, name);
+    return property->value;
+}
+
+internal U64Decode pipewire_u64_from_property_name(Pipewire_Object *object, Str8 name) {
+    Pipewire_Property *property = pipewire_property_from_name(object, name);
+    U64Decode decode = u64_from_str8(property->value);
+    return decode;
+}
+
+internal Pipewire_Object *pipewire_object_from_property_name(Pipewire_Object *object, Str8 name) {
+    U64Decode decode = pipewire_u64_from_property_name(object, name);
+
+    Pipewire_Object *result = &pipewire_nil_object;
+    if (decode.size != 0) {
+        result = pipewire_object_from_id((U32) decode.value);
+    }
+
+    return result;
+}
+
+
+
+// NOTE(simon): Parameters from objects.
+
+internal Pipewire_Parameter *pipewire_parameter_from_id(Pipewire_Object *object, U32 id) {
+    Pipewire_Parameter *result = &pipewire_nil_parameter;
+    for (Pipewire_Parameter *parameter = object->first_parameter; parameter; parameter = parameter->next) {
+        if (parameter->id == id) {
+            result = parameter;
+            break;
+        }
+    }
+    return result;
 }
 
 
