@@ -159,8 +159,8 @@ internal U64 ring_write(Void *buffer, U64 buffer_size, U64 buffer_position, Void
     U64 bytes_until_end = buffer_size - write_offset;
     U64 bytes_before    = u64_min(source_size, bytes_until_end);
     U64 bytes_after     = source_size - bytes_before;
-    memory_copy(&((U8 *) buffer)[write_offset], source,                         bytes_before);
-    memory_copy(buffer,                         &((U8 *) source)[bytes_before], bytes_after);
+    memory_copy((U8 *) buffer + write_offset, source,                       bytes_before);
+    memory_copy(buffer,                       (U8 *) source + bytes_before, bytes_after);
     return source_size;
 }
 
@@ -170,7 +170,7 @@ internal U64 ring_read(Void *buffer, U64 buffer_size, U64 buffer_position, Void 
     U64 bytes_until_end = buffer_size - read_offset;
     U64 bytes_before    = u64_min(destination_size, bytes_until_end);
     U64 bytes_after     = destination_size - bytes_before;
-    memory_copy(destination,                        &((U8 *)buffer)[read_offset], bytes_before);
-    memory_copy(&((U8 *)destination)[bytes_before], buffer,                       bytes_after);
+    memory_copy(destination,                       (U8 *) buffer + read_offset, bytes_before);
+    memory_copy((U8 *) destination + bytes_before, buffer,                      bytes_after);
     return destination_size;
 }
