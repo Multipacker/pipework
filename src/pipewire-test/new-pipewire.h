@@ -8,6 +8,7 @@
 #pragma clang diagnostic ignored "-Wc2y-extensions"
 #include <spa/utils/result.h>
 #include <spa/debug/pod.h>
+#include <spa/pod/builder.h>
 #include <pipewire/pipewire.h>
 #include <pipewire/extensions/metadata.h>
 #pragma clang diagnostic pop
@@ -118,6 +119,38 @@ typedef struct Pipewire_EventList Pipewire_EventList;
 struct Pipewire_EventList {
     Pipewire_Event *first;
     Pipewire_Event *last;
+    U64 count;
+};
+
+
+
+// NOTE(simon): Commands.
+
+typedef enum {
+    Pipewire_CommandKind_Null,
+    Pipewire_CommandKind_SetParameter,
+    Pipewire_CommandKind_Delete,
+    Pipewire_CommandKind_COUNT,
+} Pipewire_CommandKind;
+
+typedef struct Pipewire_Command Pipewire_Command;
+struct Pipewire_Command {
+    Pipewire_Command *next;
+
+    Pipewire_CommandKind kind;
+
+    // NOTE(simon): The object to act on.
+    Pipewire_Handle entity;
+
+    // NOTE(simon): The new parameter.
+    U32 parameter_id;
+    struct spa_pod *parameter;
+};
+
+typedef struct Pipewire_CommandList Pipewire_CommandList;
+struct Pipewire_CommandList {
+    Pipewire_Command *first;
+    Pipewire_Command *last;
     U64 count;
 };
 
@@ -242,6 +275,9 @@ struct Pipewire_State {
     struct spa_hook core_listener;
     struct spa_hook registry_listener;
 
+    // NOTE(simon): Event handles.
+    struct spa_source *wakeup_event;
+
     // NOTE(simon): Id to determine when we are completely synchronized with
     // the core.
     S32 core_sequence;
@@ -253,6 +289,9 @@ struct Pipewire_State {
     Arena *event_arena;
     Pipewire_EventList events;
 
+    Arena *command_arena;
+    Pipewire_CommandList commands;
+
     // NOTE(simon): Control to user thread comunication.
     OS_Mutex c2u_ring_mutex;
     OS_ConditionVariable c2u_ring_condition_variable;
@@ -261,6 +300,14 @@ struct Pipewire_State {
     U64 c2u_ring_size;
     U8 *c2u_ring_base;
     VoidFunction *wakeup_hook;
+
+    // NOTE(simon): User to control thread comunication.
+    OS_Mutex u2c_ring_mutex;
+    OS_ConditionVariable u2c_ring_condition_variable;
+    U64 u2c_ring_write_position;
+    U64 u2c_ring_read_position;
+    U64 u2c_ring_size;
+    U8 *u2c_ring_base;
 
     // NOTE(simon): Objects allocators.
     Arena *object_arena;
@@ -290,6 +337,16 @@ internal Pipewire_Event    *pipewire_event_list_push_properties(Arena *arena, Pi
 internal Str8               pipewire_serialized_string_from_event_list(Arena *arena, Pipewire_EventList events);
 internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *arena, Str8 string);
 internal Void               pipewire_apply_events(Pipewire_EventList events);
+
+// NOTE(simon): Commands.
+internal Pipewire_Command    *pipewire_command_list_push(Arena *arena, Pipewire_CommandList *list);
+internal Str8                 pipewire_serialized_string_from_command_list(Arena *arena, Pipewire_CommandList commands);
+internal Pipewire_CommandList pipewire_command_list_from_serialized_string(Arena *arena, Str8 string);
+internal Void                 pipewire_execute_commands(Pipewire_CommandList commands);
+
+// NOTE(simon): Command helpers.
+internal Void pipewire_delete(Pipewire_Object *object);
+internal Void pipewire_set_volume(Pipewire_Object *object, Pipewire_Volume volume);
 
 // NOTE(simon): Objects <-> handle.
 internal B32              pipewire_object_is_nil(Pipewire_Object *object);
@@ -333,12 +390,19 @@ internal Void pipewire_synchronize(Void);
 // NOTE(simon): Startup/shutdown.
 internal Void pipewire_init(Void);
 internal Void pipewire_deinit(Void);
-internal Void pipewire_tick(Void);
+internal Void pipewire_poll_events(Void);
+internal Void pipewire_push_commands(Void);
 internal Void pipewire_set_wakeup_hook(VoidFunction *wakeup_hook);
 
 // NOTE(simon): Control to user thread communication.
 internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena, U64 end_ns);
 internal Void               pipewire_c2u_push_events(Pipewire_EventList events);
+
+// NOTE(simon): User to control thread communication.
+internal Pipewire_CommandList pipewire_u2c_pop_commands(Arena *arena, U64 end_ns);
+internal Void                 pipewire_u2c_push_commands(Pipewire_CommandList commands);
+
+internal Void pipewire_wakeup_event(Void *data, U64 count);
 
 
 

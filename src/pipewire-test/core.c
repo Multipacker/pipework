@@ -1797,7 +1797,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
 
                             if (str8_equal(output_direction, str8_literal("out")) && str8_equal(input_direction, str8_literal("in"))) {
                                 if (!pipewire_object_is_nil(existing_link)) {
-                                    //pipewire_remove(pipewire_handle_from_object(existing_link));
+                                    pipewire_delete(existing_link);
                                 } else {
                                     //pipewire_link(pipewire_handle_from_object(output_port), pipewire_handle_from_object(input_port));
                                 }
@@ -2353,7 +2353,7 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         }
 
         if (mute_input.flags & UI_InputFlag_LeftClicked || slider_input.flags & UI_InputFlag_LeftDragging) {
-            //pipewire_set_node_volume(pipewire_handle_from_object(row->object), row->volume);
+            pipewire_set_volume(row->object, row->volume);
         }
     }
 
@@ -2385,7 +2385,7 @@ internal Void update(Void) {
 
     // NOTE(simon): Pull in new pipewire events.
     if (depth == 0) {
-        pipewire_tick();
+        pipewire_poll_events();
     }
 
 
@@ -3982,6 +3982,11 @@ internal Void update(Void) {
 
     if (PROFILE_BUILD) {
         request_frame();
+    }
+
+    // NOTE(simon): Push new pipewire commands.
+    if (depth == 0) {
+        pipewire_push_commands();
     }
 
     ++state->frame_index;

@@ -500,6 +500,206 @@ internal Void pipewire_apply_events(Pipewire_EventList events) {
 
 
 
+// NOTE(simon): Commands.
+
+internal Pipewire_Command *pipewire_command_list_push(Arena *arena, Pipewire_CommandList *list) {
+    Pipewire_Command *command = arena_push_struct(arena, Pipewire_Command);
+    sll_queue_push(list->first, list->last, command);
+    ++list->count;
+    return command;
+}
+
+internal Str8 pipewire_serialized_string_from_command_list(Arena *arena, Pipewire_CommandList commands) {
+    Arena_Temporary scratch = arena_get_scratch(&arena, 1);
+    Str8List serialized = { 0 };
+
+    str8_serial_push_type(scratch.arena, &serialized, &commands.count);
+    for (Pipewire_Command *command = commands.first; command; command = command->next) {
+        str8_serial_push_type(scratch.arena, &serialized, &command->kind);
+        str8_serial_push_type(scratch.arena, &serialized, &command->entity);
+
+        // NOTE(simon): Write parameter.
+        str8_serial_push_type(scratch.arena, &serialized, &command->parameter_id);
+        U64 parameter_size = command->parameter ? SPA_POD_SIZE(command->parameter) : 0;
+        str8_serial_push_type(scratch.arena, &serialized, &parameter_size);
+        str8_serial_push_data(scratch.arena, &serialized, command->parameter, parameter_size);
+    }
+
+    Str8 result = str8_join(arena, serialized);
+    arena_end_temporary(scratch);
+    return result;
+}
+
+internal Pipewire_CommandList pipewire_command_list_from_serialized_string(Arena *arena, Str8 string) {
+    Pipewire_CommandList commands = { 0 };
+
+    U64 read_offset = 0;
+    read_offset += str8_deserial_read_type(string, read_offset, &commands.count);
+    for (U64 i = 0; i < commands.count; ++i) {
+        Pipewire_Command *command = arena_push_struct(arena, Pipewire_Command);
+        sll_queue_push(commands.first, commands.last, command);
+
+        read_offset += str8_deserial_read_type(string, read_offset, &command->kind);
+        read_offset += str8_deserial_read_type(string, read_offset, &command->entity);
+
+        // NOTE(simon): Read parameter.
+        read_offset += str8_deserial_read_type(string, read_offset, &command->parameter_id);
+        U64 parameter_size = 0;
+        read_offset += str8_deserial_read_type(string, read_offset, &parameter_size);
+        command->parameter = arena_push_no_zero(arena, parameter_size, 16);
+        read_offset += str8_deserial_read_data(string, read_offset, command->parameter, parameter_size);
+    }
+
+    return commands;
+}
+
+internal Void pipewire_execute_commands(Pipewire_CommandList commands) {
+    for (Pipewire_Command *command = commands.first; command; command = command->next) {
+        switch (command->kind) {
+            case Pipewire_CommandKind_Null: {
+            } break;
+            case Pipewire_CommandKind_SetParameter: {
+                Pipewire_Entity *entity = pipewire_entity_from_handle(command->entity);
+                if (!pipewire_entity_is_nil(entity)) {
+                    switch (entity->kind) {
+                        case Pipewire_ObjectKind_Null: {
+                        } break;
+                        case Pipewire_ObjectKind_Client: {
+                        } break;
+                        case Pipewire_ObjectKind_Device: {
+                            pw_device_set_param((struct pw_device *) entity->proxy, command->parameter_id, 0, command->parameter);
+                        } break;
+                        case Pipewire_ObjectKind_Factory: {
+                        } break;
+                        case Pipewire_ObjectKind_Link: {
+                        } break;
+                        case Pipewire_ObjectKind_Metadata: {
+                        } break;
+                        case Pipewire_ObjectKind_Module: {
+                        } break;
+                        case Pipewire_ObjectKind_Node: {
+                            pw_node_set_param((struct pw_node *) entity->proxy, command->parameter_id, 0, command->parameter);
+                        } break;
+                        case Pipewire_ObjectKind_Port: {
+                        } break;
+                        case Pipewire_ObjectKind_COUNT: {
+                        } break;
+                    }
+                }
+            } break;
+            case Pipewire_CommandKind_Delete: {
+                Pipewire_Entity *entity = pipewire_entity_from_handle(command->entity);
+                if (!pipewire_entity_is_nil(entity)) {
+                    pw_registry_destroy(pipewire_state->registry, entity->id);
+                }
+            } break;
+            case Pipewire_CommandKind_COUNT: {
+            } break;
+        }
+    }
+}
+
+
+
+// NOTE(simon): Command helpers.
+internal Void pipewire_delete(Pipewire_Object *object) {
+    Pipewire_Command *command = pipewire_command_list_push(pipewire_state->command_arena, &pipewire_state->commands);
+    command->kind   = Pipewire_CommandKind_Delete;
+    command->entity = object->entity;
+}
+
+internal Void pipewire_set_volume(Pipewire_Object *object, Pipewire_Volume volume) {
+    // NOTE(simon): Query for card.
+    Pipewire_Object *card = pipewire_object_from_property_name(object, str8_literal(PW_KEY_DEVICE_ID));
+    if (!pipewire_object_is_card(card)) {
+        card = &pipewire_nil_object;
+    }
+
+    // NOTE(simon): Query for active card port.
+    U32 device_id  = SPA_ID_INVALID;
+    U32 port_index = SPA_ID_INVALID;
+    B32 device_has_volume = false;
+    U64Decode device_decode = pipewire_u64_from_property_name(object, str8_literal("card.profile.device"));
+    if (device_decode.size) {
+        U32 device = (U32) device_decode.value;
+
+        Pipewire_Parameter *route_parameter = pipewire_parameter_from_id(card, SPA_PARAM_Route);
+        for (U64 i = 0; i < route_parameter->count; ++i) {
+            struct spa_pod *parameter = route_parameter->parameters[i];
+
+            const struct spa_pod_prop *index_prop  = spa_pod_find_prop(parameter, 0, SPA_PARAM_ROUTE_index);
+            const struct spa_pod_prop *device_prop = spa_pod_find_prop(parameter, 0, SPA_PARAM_ROUTE_device);
+            const struct spa_pod_prop *props_prop  = spa_pod_find_prop(parameter, 0, SPA_PARAM_ROUTE_props);
+
+            if (!index_prop || !device_prop || !props_prop) {
+                continue;
+            }
+
+            S32 route_index  = 0;
+            S32 route_device = 0;
+            spa_pod_get_int(&index_prop->value,  &route_index);
+            spa_pod_get_int(&device_prop->value, &route_device);
+
+            if ((U32) route_device == device) {
+                device_id  = (U32) route_device;
+                port_index = (U32) route_index;
+                break;
+            }
+        }
+    }
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+    U8 buffer[1024];
+    struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    if (device_id != SPA_ID_INVALID && port_index != SPA_ID_INVALID) {
+        struct spa_pod_frame frame = { 0 };
+        spa_pod_builder_push_object(
+            &builder, &frame,
+            SPA_TYPE_OBJECT_ParamRoute, SPA_PARAM_Route
+        );
+        spa_pod_builder_add(
+            &builder,
+            SPA_PARAM_ROUTE_index,  SPA_POD_Int(port_index),
+            SPA_PARAM_ROUTE_device, SPA_POD_Int(device_id),
+            SPA_PARAM_ROUTE_save,   SPA_POD_Bool(true),
+            0
+        );
+        spa_pod_builder_prop(&builder, SPA_PARAM_ROUTE_props, 0);
+        spa_pod_builder_add_object(
+            &builder,
+            SPA_TYPE_OBJECT_Props,   SPA_PARAM_Props,
+            SPA_PROP_mute,           SPA_POD_Bool(volume.mute),
+            SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
+        );
+        struct spa_pod *pod = spa_pod_builder_pop(&builder, &frame);
+
+        Pipewire_Command *command = pipewire_command_list_push(pipewire_state->command_arena, &pipewire_state->commands);
+        command->kind = Pipewire_CommandKind_SetParameter;
+        command->entity = object->entity;
+        command->parameter_id = SPA_PARAM_Route;
+        command->parameter = arena_push_no_zero(pipewire_state->command_arena, SPA_POD_SIZE(pod), 16);
+        memory_copy(command->parameter, pod, SPA_POD_SIZE(pod));
+    } else if (!pipewire_object_is_nil(object)) {
+        struct spa_pod *pod = spa_pod_builder_add_object(
+            &builder,
+            SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
+            SPA_PROP_mute, SPA_POD_Bool(volume.mute),
+            SPA_PROP_channelVolumes, SPA_POD_Array(sizeof(F32), SPA_TYPE_Float, volume.channel_count, volume.channel_volumes)
+        );
+
+        Pipewire_Command *command = pipewire_command_list_push(pipewire_state->command_arena, &pipewire_state->commands);
+        command->kind = Pipewire_CommandKind_SetParameter;
+        command->entity = object->entity;
+        command->parameter_id = SPA_PARAM_Props;
+        command->parameter = arena_push_no_zero(pipewire_state->command_arena, SPA_POD_SIZE(pod), 16);
+        memory_copy(command->parameter, pod, SPA_POD_SIZE(pod));
+    }
+#pragma clang diagnostic pop
+}
+
+
+
 // NOTE(simon): Objects <-> handle.
 
 internal B32 pipewire_object_is_nil(Pipewire_Object *object) {
@@ -657,9 +857,9 @@ internal Pipewire_Volume pipewire_volume_from_object(Pipewire_Object *object) {
     }
 
     // NOTE(simon): Query for card device volume.
-    Pipewire_Property *card_profile_device_property = pipewire_property_from_name(object, str8_literal("card.profile.device"));
-    if (!pipewire_property_is_nil(card_profile_device_property)) {
-        U32 device = (U32) u64_from_str8(card_profile_device_property->value).value;
+    U64Decode device_decode = pipewire_u64_from_property_name(object, str8_literal("card.profile.device"));
+    if (device_decode.size) {
+        U32 device = (U32) device_decode.value;
 
         Pipewire_Parameter *route_parameter = pipewire_parameter_from_id(object, SPA_PARAM_Route);
         for (U64 i = 0; i < route_parameter->count; ++i) {
@@ -667,7 +867,7 @@ internal Pipewire_Volume pipewire_volume_from_object(Pipewire_Object *object) {
             const struct spa_pod_prop *device_prop = spa_pod_find_prop(route_parameter->parameters[i], 0, SPA_PARAM_ROUTE_device);
             const struct spa_pod_prop *props_prop  = spa_pod_find_prop(route_parameter->parameters[i], 0, SPA_PARAM_ROUTE_props);
 
-            if (!index_prop || !device_prop) {
+            if (!index_prop || !device_prop || !props_prop) {
                 continue;
             }
 
@@ -676,11 +876,7 @@ internal Pipewire_Volume pipewire_volume_from_object(Pipewire_Object *object) {
             spa_pod_get_int(&index_prop->value,  &route_index);
             spa_pod_get_int(&device_prop->value, &route_device);
 
-            if ((U32) route_device != device) {
-                continue;
-            }
-
-            if (props_prop) {
+            if ((U32) route_device == device) {
                 pipewire_parse_volume((struct spa_pod *) &props_prop->value, &volume);
                 has_volume = true;
             }
@@ -910,6 +1106,7 @@ internal Void pipewire_init(Void) {
     pipewire_state = arena_push_struct(arena, Pipewire_State);
     pipewire_state->arena = arena;
     pipewire_state->event_arena = arena_create();
+    pipewire_state->command_arena = arena_create();
 
     pipewire_state->entity_map_capacity = 1024;
     pipewire_state->entity_map = arena_push_array(pipewire_state->arena, Pipewire_EntityList, pipewire_state->entity_map_capacity);
@@ -918,6 +1115,11 @@ internal Void pipewire_init(Void) {
     pipewire_state->c2u_ring_condition_variable = os_condition_variable_create();
     pipewire_state->c2u_ring_size = megabytes(4);
     pipewire_state->c2u_ring_base = arena_push_array(pipewire_state->arena, U8, pipewire_state->c2u_ring_size);
+
+    pipewire_state->u2c_ring_mutex = os_mutex_create();
+    pipewire_state->u2c_ring_condition_variable = os_condition_variable_create();
+    pipewire_state->u2c_ring_size = megabytes(1);
+    pipewire_state->u2c_ring_base = arena_push_array(pipewire_state->arena, U8, pipewire_state->u2c_ring_size);
 
     pipewire_state->object_arena = arena_create();
     pipewire_state->object_map_capacity = 1024;
@@ -932,6 +1134,8 @@ internal Void pipewire_init(Void) {
 
     pw_core_add_listener(pipewire_state->core, &pipewire_state->core_listener, &pipewire_core_listener, 0);
     pw_registry_add_listener(pipewire_state->registry, &pipewire_state->registry_listener, &pipewire_registry_listener, 0);
+
+    pipewire_state->wakeup_event = pw_loop_add_event(pw_thread_loop_get_loop(pipewire_state->loop), pipewire_wakeup_event, 0);
 
     pw_thread_loop_start(pipewire_state->loop);
 }
@@ -971,11 +1175,18 @@ internal Void pipewire_deinit(Void) {
     arena_destroy(pipewire_state->arena);
 }
 
-internal Void pipewire_tick(Void) {
+internal Void pipewire_poll_events(Void) {
     Arena_Temporary scratch = arena_get_scratch(0, 0);
     Pipewire_EventList events = pipewire_c2u_pop_events(scratch.arena, os_now_nanoseconds() + 200 * 1000);
     pipewire_apply_events(events);
     arena_end_temporary(scratch);
+}
+
+internal Void pipewire_push_commands(Void) {
+    pipewire_u2c_push_commands(pipewire_state->commands);
+    memory_zero_struct(&pipewire_state->commands);
+    arena_reset(pipewire_state->command_arena);
+    pw_loop_signal_event(pw_thread_loop_get_loop(pipewire_state->loop), pipewire_state->wakeup_event);
 }
 
 internal Void pipewire_set_wakeup_hook(VoidFunction *wakeup_hook) {
@@ -1042,6 +1253,64 @@ internal Void pipewire_c2u_push_events(Pipewire_EventList events) {
 
 
 
+// NOTE(simon): User to control thread communication.
+
+internal Pipewire_CommandList pipewire_u2c_pop_commands(Arena *arena, U64 end_ns) {
+    Arena_Temporary scratch = arena_get_scratch(&arena, 1);
+    Str8 serialized_commands = { 0 };
+    os_mutex_scope(pipewire_state->u2c_ring_mutex)
+    for (;;) {
+        U64 unconsumed_size = pipewire_state->u2c_ring_write_position - pipewire_state->u2c_ring_read_position;
+        if (unconsumed_size >= sizeof(U64)) {
+            pipewire_state->u2c_ring_read_position += ring_read_type(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_read_position, &serialized_commands.size);
+            serialized_commands.data = arena_push_array_no_zero(scratch.arena, U8, serialized_commands.size);
+            pipewire_state->u2c_ring_read_position += ring_read(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_read_position, serialized_commands.data, serialized_commands.size);
+            break;
+        }
+
+        if (!os_condition_variable_wait(pipewire_state->u2c_ring_condition_variable, pipewire_state->u2c_ring_mutex, end_ns)) {
+            break;
+        }
+    }
+
+    if (serialized_commands.size) {
+        os_condition_variable_signal(pipewire_state->u2c_ring_condition_variable);
+    }
+
+    Pipewire_CommandList commands = pipewire_command_list_from_serialized_string(arena, serialized_commands);
+    arena_end_temporary(scratch);
+    return commands;
+}
+
+internal Void pipewire_u2c_push_commands(Pipewire_CommandList commands) {
+    if (!commands.count) {
+        return;
+    }
+
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+    Str8 serialized_commands = pipewire_serialized_string_from_command_list(scratch.arena, commands);
+    os_mutex_scope(pipewire_state->u2c_ring_mutex)
+    for (;;) {
+        U64 unconsumed_size = pipewire_state->u2c_ring_write_position - pipewire_state->u2c_ring_read_position;
+        U64 available_size  = pipewire_state->u2c_ring_size - unconsumed_size;
+        if (available_size >= sizeof(serialized_commands.size) + serialized_commands.size) {
+            pipewire_state->u2c_ring_write_position += ring_write_type(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_write_position, &serialized_commands.size);
+            pipewire_state->u2c_ring_write_position += ring_write(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_write_position, serialized_commands.data, serialized_commands.size);
+            break;
+        }
+        os_condition_variable_wait(pipewire_state->u2c_ring_condition_variable, pipewire_state->u2c_ring_mutex, U64_MAX);
+    }
+    os_condition_variable_signal(pipewire_state->u2c_ring_condition_variable);
+    arena_end_temporary(scratch);
+}
+
+
+
+internal Void pipewire_wakeup_event(Void *data, U64 count) {
+    pipewire_synchronize();
+}
+
+
 
 // NOTE(simon): Client listeners.
 
@@ -1067,6 +1336,8 @@ internal Void pipewire_core_done(Void *data, U32 id, S32 sequence) {
         return;
     }
 
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+
     // NOTE(simon): Generate change events.
     for (U64 i = 0; i < pipewire_state->entity_map_capacity; ++i) {
         Pipewire_EntityList *bucket = &pipewire_state->entity_map[i];
@@ -1077,8 +1348,14 @@ internal Void pipewire_core_done(Void *data, U32 id, S32 sequence) {
 
     pipewire_c2u_push_events(pipewire_state->events);
 
+    // NOTE(simon): Execute any commands that we have.
+    Pipewire_CommandList commands = pipewire_u2c_pop_commands(scratch.arena, os_now_nanoseconds() + 200 * 1000);
+    pipewire_execute_commands(commands);
+
     memory_zero_struct(&pipewire_state->events);
     arena_reset(pipewire_state->event_arena);
+
+    arena_end_temporary(scratch);
 }
 
 internal Void pipewire_core_error(Void *data, U32 id, S32 sequence, S32 res, const char *message) {
