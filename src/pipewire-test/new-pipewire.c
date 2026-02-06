@@ -1014,6 +1014,10 @@ internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena, U64 end_ns) {
 }
 
 internal Void pipewire_c2u_push_events(Pipewire_EventList events) {
+    if (!events.count) {
+        return;
+    }
+
     Arena_Temporary scratch = arena_get_scratch(0, 0);
     Str8 serialized_events = pipewire_serialized_string_from_event_list(scratch.arena, events);
     os_mutex_scope(pipewire_state->c2u_ring_mutex)
