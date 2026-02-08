@@ -116,7 +116,7 @@ internal COMPARE_FUNCTION(property_row_compare) {
         }
     }
 
-    // NOTE(simon): Fallback on lexigraphical ordering.
+    // NOTE(simon): Fallback on lexicographical ordering.
     if (result == 0) {
         result = str8_compare_ascii(a->label, b->label);
     }
@@ -173,9 +173,41 @@ internal COMPARE_FUNCTION(volume_row_compare) {
         }
     }
 
-    // NOTE(simon): Fallback on lexigraphical ordering.
+    // NOTE(simon): Fallback on lexicographical ordering.
     if (result == 0) {
         result = str8_compare_ascii(a->label, b->label);
+    }
+
+    return result;
+}
+
+internal COMPARE_FUNCTION(pipewire_port_compare) {
+    Pipewire_Object *a = *(Pipewire_Object **) raw_a;
+    Pipewire_Object *b = *(Pipewire_Object **) raw_b;
+
+    S64 result = 0;
+
+    Str8 a_name = pipewire_string_from_property_name(a, str8_literal("object.path"));
+    Str8 b_name = pipewire_string_from_property_name(b, str8_literal("object.path"));
+
+    // NOTE(simon): Ports have an object path on the format
+    // "<node>:<direction>_<index>". Attempt to order them by the index.
+    U64Decode a_index = u64_from_str8(str8_skip(a_name, 1 + str8_last_index_of(a_name, '_')));
+    U64Decode b_index = u64_from_str8(str8_skip(b_name, 1 + str8_last_index_of(b_name, '_')));
+
+    // NOTE(simon): Those that can be parsed on this format should appear
+    // earlier than those that cannot.
+    if (a_index.size != 0 ^ b_index.size != 0) {
+        result = (S64) b_index.size - (S64) a_index.size;
+    }
+
+    if (result == 0) {
+        result = (S64) a_index.value - (S64) b_index.value;
+    }
+
+    // NOTE(simon): Fallback on lexicographical ordering.
+    if (result == 0) {
+        str8_compare_ascii(a_name, b_name);
     }
 
     return result;
@@ -1566,6 +1598,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     Pipewire_ObjectArray ports = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Port);
     Pipewire_ObjectArray links = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Link);
 
+    quicksort(ports.objects, ports.count, pipewire_port_compare);
+
     V2F32 tab_size    = r2f32_size(tab_rectangle);
     F32   row_height  = 2.0f * (F32) ui_font_size_top();
     F32   port_radius = ui_size_ems(0.5f, 1.0f).value;
@@ -1710,7 +1744,6 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                 }
 
                 // NOTE(simon): Build ports.
-                // TODO(simon): Sort ports by channel id.
                 U32 input_port_index = 0;
                 U32 output_port_index = 0;
                 for (U64 j = 0; j < ports.count; ++j) {
