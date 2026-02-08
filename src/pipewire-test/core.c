@@ -1799,7 +1799,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                                 if (!pipewire_object_is_nil(existing_link)) {
                                     pipewire_delete(existing_link);
                                 } else {
-                                    //pipewire_link(pipewire_handle_from_object(output_port), pipewire_handle_from_object(input_port));
+                                    pipewire_link(output_port, input_port);
                                 }
                             }
                         }

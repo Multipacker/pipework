@@ -518,11 +518,27 @@ internal Str8 pipewire_serialized_string_from_command_list(Arena *arena, Pipewir
         str8_serial_push_type(scratch.arena, &serialized, &command->kind);
         str8_serial_push_type(scratch.arena, &serialized, &command->entity);
 
+        // NOTE(simon): Write properties.
+        str8_serial_push_type(scratch.arena, &serialized, &command->property_count);
+        for (U64 i = 0; i < command->property_count; ++i) {
+            Pipewire_Property *property = &command->properties[i];
+            str8_serial_push_type(scratch.arena, &serialized, &property->key.size);
+            str8_serial_push_data(scratch.arena, &serialized, property->key.data, property->key.size);
+            str8_serial_push_type(scratch.arena, &serialized, &property->value.size);
+            str8_serial_push_data(scratch.arena, &serialized, property->value.data, property->value.size);
+        }
+
         // NOTE(simon): Write parameter.
         str8_serial_push_type(scratch.arena, &serialized, &command->parameter_id);
         U64 parameter_size = command->parameter ? SPA_POD_SIZE(command->parameter) : 0;
         str8_serial_push_type(scratch.arena, &serialized, &parameter_size);
         str8_serial_push_data(scratch.arena, &serialized, command->parameter, parameter_size);
+
+        str8_serial_push_type(scratch.arena, &serialized, &command->factory_name.size);
+        str8_serial_push_data(scratch.arena, &serialized, command->factory_name.data, command->factory_name.size);
+        str8_serial_push_type(scratch.arena, &serialized, &command->object_type.size);
+        str8_serial_push_data(scratch.arena, &serialized, command->object_type.data, command->object_type.size);
+        str8_serial_push_type(scratch.arena, &serialized, &command->object_version);
     }
 
     Str8 result = str8_join(arena, serialized);
@@ -542,12 +558,33 @@ internal Pipewire_CommandList pipewire_command_list_from_serialized_string(Arena
         read_offset += str8_deserial_read_type(string, read_offset, &command->kind);
         read_offset += str8_deserial_read_type(string, read_offset, &command->entity);
 
+        // NOTE(simon): Read properties.
+        read_offset += str8_deserial_read_type(string, read_offset, &command->property_count);
+        command->properties = arena_push_array_no_zero(arena, Pipewire_Property, command->property_count);
+        for (U64 j = 0; j < command->property_count; ++j) {
+            Pipewire_Property *property = &command->properties[j];
+            read_offset += str8_deserial_read_type(string, read_offset, &property->key.size);
+            property->key.data = arena_push_array_no_zero(arena, U8, property->key.size);
+            read_offset += str8_deserial_read_data(string, read_offset, property->key.data, property->key.size);
+            read_offset += str8_deserial_read_type(string, read_offset, &property->value.size);
+            property->value.data = arena_push_array_no_zero(arena, U8, property->value.size);
+            read_offset += str8_deserial_read_data(string, read_offset, property->value.data, property->value.size);
+        }
+
         // NOTE(simon): Read parameter.
         read_offset += str8_deserial_read_type(string, read_offset, &command->parameter_id);
         U64 parameter_size = 0;
         read_offset += str8_deserial_read_type(string, read_offset, &parameter_size);
         command->parameter = arena_push_no_zero(arena, parameter_size, 16);
         read_offset += str8_deserial_read_data(string, read_offset, command->parameter, parameter_size);
+
+        read_offset += str8_deserial_read_type(string, read_offset, &command->factory_name.size);
+        command->factory_name.data = arena_push_array_no_zero(arena, U8, command->factory_name.size);
+        read_offset += str8_deserial_read_data(string, read_offset, command->factory_name.data, command->factory_name.size);
+        read_offset += str8_deserial_read_type(string, read_offset, &command->object_type.size);
+        command->object_type.data = arena_push_array_no_zero(arena, U8, command->object_type.size);
+        read_offset += str8_deserial_read_data(string, read_offset, command->object_type.data, command->object_type.size);
+        read_offset += str8_deserial_read_type(string, read_offset, &command->object_version);
     }
 
     return commands;
@@ -586,6 +623,31 @@ internal Void pipewire_execute_commands(Pipewire_CommandList commands) {
                         } break;
                     }
                 }
+            } break;
+            case Pipewire_CommandKind_Create: {
+                Arena_Temporary scratch = arena_get_scratch(0, 0);
+                CStr factory_name = cstr_from_str8(scratch.arena, command->factory_name);
+                CStr object_type  = cstr_from_str8(scratch.arena, command->object_type);
+
+                // NOTE(simon): Create properties.
+                struct pw_properties *properties = pw_properties_new(NULL, NULL);
+                for (U64 i = 0; i < command->property_count; ++i) {
+                    CStr key = cstr_from_str8(scratch.arena, command->properties[i].key);
+                    CStr value = cstr_from_str8(scratch.arena, command->properties[i].value);
+                    pw_properties_set(properties, key, value);
+                }
+
+                pw_core_create_object(
+                    pipewire_state->core,
+                    factory_name,
+                    object_type,
+                    command->object_version,
+                    &properties->dict,
+                    0
+                );
+
+                pw_properties_free(properties);
+                arena_end_temporary(scratch);
             } break;
             case Pipewire_CommandKind_Delete: {
                 Pipewire_Entity *entity = pipewire_entity_from_handle(command->entity);
@@ -696,6 +758,55 @@ internal Void pipewire_set_volume(Pipewire_Object *object, Pipewire_Volume volum
         memory_copy(command->parameter, pod, SPA_POD_SIZE(pod));
     }
 #pragma clang diagnostic pop
+}
+
+internal Void pipewire_link(Pipewire_Object *output, Pipewire_Object *input) {
+    B32 good = true;
+
+    Pipewire_Property properties[3] = { 0 };
+    U32 property_count = 0;
+
+    properties[property_count].key   = str8_literal(PW_KEY_OBJECT_LINGER);
+    properties[property_count].value = str8_literal("true");
+    ++property_count;
+
+    // NOTE(simon): Fill output object.
+    if (output->kind == Pipewire_ObjectKind_Port) {
+        properties[property_count].key   = str8_literal(PW_KEY_LINK_OUTPUT_PORT);
+        properties[property_count].value = str8_format(pipewire_state->command_arena, "%u", output->id);
+        ++property_count;
+    } else if (output->kind == Pipewire_ObjectKind_Node) {
+        properties[property_count].key   = str8_literal(PW_KEY_LINK_OUTPUT_NODE);
+        properties[property_count].value = str8_format(pipewire_state->command_arena, "%u", output->id);
+        ++property_count;
+    } else {
+        good = false;
+    }
+
+    // NOTE(simon): Fill input object.
+    if (input->kind == Pipewire_ObjectKind_Port) {
+        properties[property_count].key   = str8_literal(PW_KEY_LINK_INPUT_PORT);
+        properties[property_count].value = str8_format(pipewire_state->command_arena, "%u", input->id);
+        ++property_count;
+    } else if (input->kind == Pipewire_ObjectKind_Node) {
+        properties[property_count].key   = str8_literal(PW_KEY_LINK_INPUT_NODE);
+        properties[property_count].value = str8_format(pipewire_state->command_arena, "%u", input->id);
+        ++property_count;
+    } else {
+        good = false;
+    }
+
+    // NOTE(simon): Issue command if we could fill out all required properties.
+    if (good) {
+        Pipewire_Command *command = pipewire_command_list_push(pipewire_state->command_arena, &pipewire_state->commands);
+        command->kind           = Pipewire_CommandKind_Create;
+        command->factory_name   = str8_literal("link-factory");
+        command->object_type    = str8_literal(PW_TYPE_INTERFACE_Link);
+        command->object_version = PW_VERSION_LINK;
+        command->property_count = property_count;
+        command->properties     = arena_push_array_no_zero(pipewire_state->command_arena, Pipewire_Property, command->property_count);
+        memory_copy(command->properties, properties, command->property_count * sizeof(Pipewire_Property));
+    }
 }
 
 

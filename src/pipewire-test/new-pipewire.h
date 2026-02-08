@@ -129,6 +129,7 @@ struct Pipewire_EventList {
 typedef enum {
     Pipewire_CommandKind_Null,
     Pipewire_CommandKind_SetParameter,
+    Pipewire_CommandKind_Create,
     Pipewire_CommandKind_Delete,
     Pipewire_CommandKind_COUNT,
 } Pipewire_CommandKind;
@@ -142,9 +143,17 @@ struct Pipewire_Command {
     // NOTE(simon): The object to act on.
     Pipewire_Handle entity;
 
+    // NOTE(simon): Properties.
+    U64 property_count;
+    Pipewire_Property *properties;
+
     // NOTE(simon): The new parameter.
     U32 parameter_id;
     struct spa_pod *parameter;
+
+    Str8 factory_name;
+    Str8 object_type;
+    U32  object_version;
 };
 
 typedef struct Pipewire_CommandList Pipewire_CommandList;
@@ -332,21 +341,22 @@ internal U64  pipewire_spa_pod_min_type_size(U32 type);
 internal Void pipewire_parse_volume(struct spa_pod *props, Pipewire_Volume *volume);
 
 // NOTE(simon): Events.
-internal Pipewire_Event    *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
-internal Pipewire_Event    *pipewire_event_list_push_properties(Arena *arena, Pipewire_EventList *list, U32 id, struct spa_dict *properties);
-internal Str8               pipewire_serialized_string_from_event_list(Arena *arena, Pipewire_EventList events);
-internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *arena, Str8 string);
-internal Void               pipewire_apply_events(Pipewire_EventList events);
+internal Pipewire_Event     *pipewire_event_list_push(Arena *arena, Pipewire_EventList *list);
+internal Pipewire_Event     *pipewire_event_list_push_properties(Arena *arena, Pipewire_EventList *list, U32 id, struct spa_dict *properties);
+internal Str8                pipewire_serialized_string_from_event_list(Arena *arena, Pipewire_EventList events);
+internal Pipewire_EventList  pipewire_event_list_from_serialized_string(Arena *arena, Str8 string);
+internal Void                pipewire_apply_events(Pipewire_EventList events);
 
 // NOTE(simon): Commands.
-internal Pipewire_Command    *pipewire_command_list_push(Arena *arena, Pipewire_CommandList *list);
-internal Str8                 pipewire_serialized_string_from_command_list(Arena *arena, Pipewire_CommandList commands);
-internal Pipewire_CommandList pipewire_command_list_from_serialized_string(Arena *arena, Str8 string);
-internal Void                 pipewire_execute_commands(Pipewire_CommandList commands);
+internal Pipewire_Command     *pipewire_command_list_push(Arena *arena, Pipewire_CommandList *list);
+internal Str8                  pipewire_serialized_string_from_command_list(Arena *arena, Pipewire_CommandList commands);
+internal Pipewire_CommandList  pipewire_command_list_from_serialized_string(Arena *arena, Str8 string);
+internal Void                  pipewire_execute_commands(Pipewire_CommandList commands);
 
 // NOTE(simon): Command helpers.
 internal Void pipewire_delete(Pipewire_Object *object);
 internal Void pipewire_set_volume(Pipewire_Object *object, Pipewire_Volume volume);
+internal Void pipewire_link(Pipewire_Object *output, Pipewire_Object *input);
 
 // NOTE(simon): Objects <-> handle.
 internal B32              pipewire_object_is_nil(Pipewire_Object *object);
@@ -355,14 +365,14 @@ internal Pipewire_Handle  pipewire_handle_from_object(Pipewire_Object *object);
 internal Pipewire_Object *pipewire_object_from_id(U32 id);
 
 // NOTE(simon): Object alloction/freeing.
-internal Void            *pipewire_allocate(U64 size);
-internal Void             pipewire_free(Void *data, U64 size);
-internal Str8             pipewire_allocate_string(Str8 string);
-internal Void             pipewire_free_string(Str8 string);
+internal Void *pipewire_allocate(U64 size);
+internal Void  pipewire_free(Void *data, U64 size);
+internal Str8  pipewire_allocate_string(Str8 string);
+internal Void  pipewire_free_string(Str8 string);
 
 // NOTE(simon): Object helpers.
-internal B32              pipewire_object_is_card(Pipewire_Object *object);
-internal Pipewire_Volume  pipewire_volume_from_object(Pipewire_Object *object);
+internal B32             pipewire_object_is_card(Pipewire_Object *object);
+internal Pipewire_Volume pipewire_volume_from_object(Pipewire_Object *object);
 
 // NOTE(simon): Properties from objects.
 internal B32                pipewire_property_is_nil(Pipewire_Property *property);
