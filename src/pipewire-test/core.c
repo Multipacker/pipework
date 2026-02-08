@@ -1575,7 +1575,11 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     struct GraphNode {
         GraphNode *next;
         GraphNode *previous;
-        V2F32      position;
+
+        V2F32 size;
+        V2F32 position;
+        V2F32 velocity;
+        V2F32 acceleration;
 
         U64 last_frame_touched;
 
@@ -1603,6 +1607,69 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     V2F32 tab_size    = r2f32_size(tab_rectangle);
     F32   row_height  = 2.0f * (F32) ui_font_size_top();
     F32   port_radius = ui_size_ems(0.5f, 1.0f).value;
+    F32   node_separation = 20.0f;
+
+    // NOTE(simon): Damping.
+    for (GraphNode *node = tab_state->first_node; node; node = node->next) {
+        node->acceleration = v2f32_scale(node->velocity, -0.2f);
+    }
+
+    // NOTE(simon): Separation.
+    for (GraphNode *a = tab_state->first_node; a; a = a->next) {
+        for (GraphNode *b = a->next; b; b = b->next) {
+            R2F32 a_box = r2f32_from_position_size(a->position, a->size);
+            R2F32 b_box = r2f32_from_position_size(b->position, b->size);
+            R2F32 overlap = r2f32_intersect(a_box, b_box);
+
+            if (overlap.min.x - overlap.max.x < node_separation && overlap.min.y - overlap.max.y < node_separation) {
+                V2F32 direction = v2f32_normalize(v2f32_subtract(r2f32_center(a_box), r2f32_center(b_box)));
+
+                a->acceleration = v2f32_add(a->acceleration, direction);
+                b->acceleration = v2f32_subtract(b->acceleration, direction);
+            }
+        }
+    }
+
+    // NOTE(simon): Attraction
+    for (U64 i = 0; i < links.count; ++i) {
+        Pipewire_Object *link = links.objects[i];
+        Pipewire_Object *output = pipewire_object_from_property_name(link, str8_literal(PW_KEY_LINK_OUTPUT_NODE));
+        Pipewire_Object *input = pipewire_object_from_property_name(link, str8_literal(PW_KEY_LINK_INPUT_NODE));
+
+        GraphNode *output_node = 0;
+        GraphNode *input_node = 0;
+        for (GraphNode *candidate = tab_state->first_node; candidate; candidate = candidate->next) {
+            if (pipewire_object_from_handle(candidate->handle) == input) {
+                input_node = candidate;
+            } else if (pipewire_object_from_handle(candidate->handle) == output) {
+                output_node = candidate;
+            }
+        }
+
+        if (output_node && input_node) {
+            F32 x_distance = output_node->position.x + output_node->size.x + 200.0f - input_node->position.x;
+            if (f32_abs(x_distance) > 100.0f) {
+                input_node->acceleration.x += x_distance / input_node->size.x;
+                output_node->acceleration.x -= x_distance / output_node->size.x;
+            }
+
+            F32 y_distance = output_node->position.y - input_node->position.y;
+            if (f32_abs(y_distance) > 200.0f) {
+                input_node->acceleration.y += y_distance / input_node->size.y;
+                output_node->acceleration.y -= y_distance / output_node->size.y;
+            }
+        }
+    }
+
+    // NOTE(simon): Update positions.
+    for (GraphNode *node = tab_state->first_node; node; node = node->next) {
+        node->velocity = v2f32_add(node->velocity, node->acceleration);
+        node->position = v2f32_add(node->position, node->velocity);
+
+        if (v2f32_dot(node->velocity, node->velocity) > 0.0f) {
+            request_frame();
+        }
+    }
 
     // NOTE(simon): Build graph.
     ui_width_next(ui_size_pixels(tab_size.width, 1.0f));
@@ -1699,6 +1766,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                 dll_push_back(tab_state->first_node, tab_state->last_node, graph_node);
             }
             graph_node->last_frame_touched = state->frame_index;
+            graph_node->size = v2f32(node_width, node_height);
 
             if (pipewire_object_from_handle(state->hovered_object) == node) {
                 UI_Palette palette = ui_palette_top();
