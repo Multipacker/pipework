@@ -126,16 +126,16 @@ internal Void pipewire_parse_volume(struct spa_pod *props, Pipewire_Volume *volu
     SPA_POD_OBJECT_FOREACH((struct spa_pod_object *) props, property) {
         switch (property->key) {
             case SPA_PROP_mute: {
-                spa_pod_get_bool(&property->value, &mute) >= 0;
+                spa_pod_get_bool(&property->value, &mute);
             } break;
             case SPA_PROP_channelVolumes: {
                 channel_volumes_count = spa_pod_copy_array(&property->value, SPA_TYPE_Float, volume->channel_volumes, array_count(volume->channel_volumes));
             } break;
             case SPA_PROP_volumeBase: {
-                spa_pod_get_float(&property->value, &volume->volume_base) >= 0;
+                spa_pod_get_float(&property->value, &volume->volume_base);
             } break;
             case SPA_PROP_volumeStep: {
-                spa_pod_get_float(&property->value, &volume->volume_step) >= 0;
+                spa_pod_get_float(&property->value, &volume->volume_step);
             } break;
             case SPA_PROP_channelMap: {
                 channel_map_count = spa_pod_copy_array(&property->value, SPA_TYPE_Id, volume->channel_map, array_count(volume->channel_map));
@@ -738,7 +738,7 @@ internal Void pipewire_set_volume(Pipewire_Object *object, Pipewire_Volume volum
 
         Pipewire_Command *command = pipewire_command_list_push(pipewire_state->command_arena, &pipewire_state->commands);
         command->kind = Pipewire_CommandKind_SetParameter;
-        command->entity = object->entity;
+        command->entity = card->entity;
         command->parameter_id = SPA_PARAM_Route;
         command->parameter = arena_push_no_zero(pipewire_state->command_arena, SPA_POD_SIZE(pod), 16);
         memory_copy(command->parameter, pod, SPA_POD_SIZE(pod));
@@ -972,7 +972,7 @@ internal Pipewire_Volume pipewire_volume_from_object(Pipewire_Object *object) {
     if (device_decode.size) {
         U32 device = (U32) device_decode.value;
 
-        Pipewire_Parameter *route_parameter = pipewire_parameter_from_id(object, SPA_PARAM_Route);
+        Pipewire_Parameter *route_parameter = pipewire_parameter_from_id(card, SPA_PARAM_Route);
         for (U64 i = 0; i < route_parameter->count; ++i) {
             const struct spa_pod_prop *index_prop  = spa_pod_find_prop(route_parameter->parameters[i], 0, SPA_PARAM_ROUTE_index);
             const struct spa_pod_prop *device_prop = spa_pod_find_prop(route_parameter->parameters[i], 0, SPA_PARAM_ROUTE_device);
