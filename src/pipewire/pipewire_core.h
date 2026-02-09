@@ -1,5 +1,5 @@
-#ifndef PIPEWIRE_INCLUDE_H
-#define PIPEWIRE_INCLUDE_H
+#ifndef PIPEWIRE_OWN_CORE_H
+#define PIPEWIRE_OWN_CORE_H
 
 #undef global
 #pragma clang diagnostic push
@@ -501,4 +501,4 @@ global struct pw_registry_events pipewire_registry_listener = {
 #define global static
 };
 
-#endif // PIPEWIRE_INCLUDE_H
+#endif // PIPEWIRE_OWN_CORE_H

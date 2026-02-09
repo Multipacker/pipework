@@ -6,6 +6,7 @@
 #include "src/draw/draw_include.h"
 #include "src/ui/ui_include.h"
 #include "src/nat/nat_include.h"
+#include "src/pipewire/pipewire_include.h"
 
 #include "src/base/base_include.c"
 #include "src/graphics/graphics_include.c"
@@ -15,9 +16,7 @@
 #include "src/draw/draw_include.c"
 #include "src/ui/ui_include.c"
 #include "src/nat/nat_include.c"
-
-#include "new-pipewire.h"
-#include "new-pipewire.c"
+#include "src/pipewire/pipewire_include.c"
 
 #include "core.h"
 #include "core.c"
