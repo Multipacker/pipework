@@ -1280,6 +1280,9 @@ internal Void pipewire_deinit(Void) {
     pw_deinit();
 
     // NOTE(simon): Destroy synchronization primitives for communication.
+    os_condition_variable_destroy(pipewire_state->u2c_ring_condition_variable);
+    os_mutex_destroy(pipewire_state->u2c_ring_mutex);
+
     os_condition_variable_destroy(pipewire_state->c2u_ring_condition_variable);
     os_mutex_destroy(pipewire_state->c2u_ring_mutex);
 
