@@ -525,7 +525,6 @@ internal UI_Input ui_slider(F32 min, F32 *value, F32 max, UI_Key key) {
         UI_BoxFlag_Clickable | UI_BoxFlag_KeyboardClickable,
         key
     );
-    ui_box_set_string(box, str8_format(ui_frame_arena(), "%.2f", *value));
 
     UI_Input input = ui_input_from_box(box);
 
@@ -599,6 +598,7 @@ internal UI_Input ui_slider(F32 min, F32 *value, F32 max, UI_Key key) {
 
     // NOTE(simon): Fill draw data.
     *percentage_filled = (*value - min) / (max - min);
+    ui_box_set_string(box, str8_format(ui_frame_arena(), "%.2f", *value));
 
     // NOTE(simon): Clear auto focus.
     if (is_auto_focus_hot) {
