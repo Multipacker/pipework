@@ -9,6 +9,8 @@
 #include <spa/utils/result.h>
 #include <spa/debug/pod.h>
 #include <spa/pod/builder.h>
+#include <spa/pod/compare.h>
+#include <spa/pod/parser.h>
 #include <pipewire/pipewire.h>
 #include <pipewire/extensions/metadata.h>
 #pragma clang diagnostic pop

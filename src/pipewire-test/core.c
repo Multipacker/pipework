@@ -2437,6 +2437,552 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
     arena_end_temporary(scratch);
 }
 
+internal BUILD_TAB_FUNCTION(build_property_info_tab) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+
+    typedef struct TabState TabState;
+    struct TabState {
+        UI_ScrollPosition scroll_position;
+        U8  buffer[1024];
+        U64 buffer_size;
+        U64 cursor;
+        U64 mark;
+    };
+
+    TabState *tab_state = tab_state_from_type(TabState);
+
+    Pipewire_Object    *selected_object = pipewire_object_from_handle(state->selected_object);
+    Pipewire_Parameter *prop_infos      = pipewire_parameter_from_id(selected_object, SPA_PARAM_PropInfo);
+    Pipewire_Parameter *props           = pipewire_parameter_from_id(selected_object, SPA_PARAM_Props);
+
+    typedef struct Label Label;
+    struct Label {
+        Label *next;
+        struct spa_pod *value;
+        Str8 label;
+    };
+    typedef struct Row Row;
+    struct Row {
+        Row *next;
+        // NOTE(simon): Location in SPA_PARAM_Props.
+
+        U32  id;
+        B32  params;
+        Str8 name;
+        U32  index;
+
+        // NOTE(simon): Visual description.
+        Str8 description;
+        FuzzyMatchList description_matches;
+
+        // NOTE(simon): Structural information.
+        U32 container;
+        U32 choice;
+        U32 type_count;
+        struct spa_pod *type;
+        Label *first_label;
+        Label *last_label;
+
+        struct spa_pod *pod_value;
+        Void *raw_value;
+    };
+
+    // NOTE(simon): Collect rows.
+    Row *rows = 0;
+    S64 row_count = 0;
+    {
+        Row *first_row = 0;
+        Row *last_row  = 0;
+        for (U64 i = 0; i < prop_infos->count; ++i) {
+            Row row_base = { 0 };
+
+            // NOTE(simon): Collect information about property.
+            struct spa_pod_prop *property_info = 0;
+            SPA_POD_OBJECT_FOREACH((struct spa_pod_object *) prop_infos->parameters[i], property_info) {
+                switch (property_info->key) {
+                    case SPA_PROP_INFO_id: {
+                        spa_pod_get_id(&property_info->value, &row_base.id);
+                    } break;
+                    case SPA_PROP_INFO_name: {
+                        const char *name = 0;
+                        spa_pod_get_string(&property_info->value, &name);
+                        row_base.name = str8_cstr((CStr) name);
+                    } break;
+                    case SPA_PROP_INFO_type: {
+                        row_base.type = spa_pod_get_values(&property_info->value, &row_base.type_count, &row_base.choice);
+                        if (row_base.choice == SPA_CHOICE_Enum && row_base.type_count == 1) {
+                            row_base.choice = SPA_CHOICE_None;
+                        }
+                    } break;
+                    case SPA_PROP_INFO_labels: {
+                        // NOTE(simon): Collect labels.
+                        struct spa_pod_parser parser = { 0 };
+                        struct spa_pod_frame frame = { 0 };
+                        spa_pod_parser_pod(&parser, &property_info->value);
+                        spa_pod_parser_push_struct(&parser, &frame);
+                        for (;;) {
+                            struct spa_pod *value = 0;
+                            const char *label_cstr = 0;
+                            int value_error = spa_pod_parser_get_pod(&parser, &value);
+                            int label_error = spa_pod_parser_get_string(&parser, &label_cstr);
+
+                            if (value_error != 0 || label_error != 0) {
+                                break;
+                            }
+
+                            Label *label = arena_push_struct(scratch.arena, Label);
+                            label->value = value;
+                            label->label = str8_cstr((CStr) label_cstr);
+                            sll_queue_push(row_base.first_label, row_base.last_label, label);
+                        }
+                    } break;
+                    case SPA_PROP_INFO_container: {
+                        spa_pod_get_id(&property_info->value, &row_base.container);
+                    } break;
+                    case SPA_PROP_INFO_params: {
+                        bool params = false;
+                        spa_pod_get_bool(&property_info->value, &params);
+                        row_base.params = (B32) params;
+                    } break;
+                    case SPA_PROP_INFO_description: {
+                        const char *description = 0;
+                        spa_pod_get_string(&property_info->value, &description);
+                        row_base.description = str8_cstr((CStr) description);
+                    } break;
+                }
+            }
+
+            // NOTE(simon): Collect active value.
+            if (row_base.params) {
+                for (U64 j = 0; j < props->count && !row_base.pod_value; ++j) {
+                    const struct spa_pod_prop *parameters = spa_pod_find_prop(props->parameters[j], 0, SPA_PROP_params);
+                    if (parameters) {
+                        struct spa_pod_parser parser = { 0 };
+                        struct spa_pod_frame frame = { 0 };
+                        spa_pod_parser_pod(&parser, &parameters->value);
+                        spa_pod_parser_push_struct(&parser, &frame);
+
+                        for (;;) {
+                            const char *key = 0;
+                            struct spa_pod *value = 0;
+                            int key_error   = spa_pod_parser_get_string(&parser, &key);
+                            int value_error = spa_pod_parser_get_pod(&parser, &value);
+
+                            if (key_error != 0 || value_error != 0) {
+                                break;
+                            }
+
+                            if (str8_equal(str8_cstr((CStr) key), row_base.name)) {
+                                row_base.pod_value = value;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                for (U64 j = 0; j < props->count; ++j) {
+                    const struct spa_pod_prop *property = spa_pod_find_prop(props->parameters[j], 0, row_base.id);
+                    if (property) {
+                        row_base.pod_value = (struct spa_pod *) &property->value;
+                        break;
+                    }
+                }
+            }
+
+            // NOTE(simon): If we have a value, generate rows.
+            if (row_base.pod_value) {
+                // NOTE(simon): Extract values from possible container.
+                U32 value_count = 1;
+                U32 value_type = SPA_POD_TYPE(row_base.pod_value);
+                U32 value_size = SPA_POD_BODY_SIZE(row_base.pod_value);
+                Void *raw_values = SPA_POD_BODY(row_base.pod_value);
+                if (row_base.container == SPA_TYPE_Array) {
+                    value_type = SPA_POD_ARRAY_VALUE_TYPE(row_base.pod_value);
+                    value_size = SPA_POD_ARRAY_VALUE_SIZE(row_base.pod_value);
+                    raw_values = spa_pod_get_array(row_base.pod_value, &value_count);
+                }
+
+                // TODO(simon): Get and check type and size of all values.
+
+                for (U32 j = 0; j < value_count; ++j) {
+                    Row *row = arena_push_struct(scratch.arena, Row);
+                    *row = row_base;
+                    row->index = j;
+                    row->raw_value = (U8 *) raw_values + j * value_size;
+                    sll_queue_push(first_row, last_row, row);
+                    ++row_count;
+                }
+            }
+        }
+
+        // NOTE(simon): Flatten generated rows to array.
+        rows = arena_push_array(scratch.arena, Row, (U64) row_count);
+        for (Row *row = first_row, *row_ptr = rows; row; row = row->next) {
+            *row_ptr++ = *row;
+        }
+    }
+
+    F32 max_description_width = 0.0f;
+    for (S64 i = 0; i < row_count; ++i) {
+        F32 width = font_cache_text(scratch.arena, ui_font_top(), rows[i].description, ui_font_size_top()).size.width;
+        max_description_width = f32_max(max_description_width, width);
+    }
+
+    // NOTE(simon): Filter
+    Str8 query = query_from_tab();
+    for (S64 i = 0; i < row_count;) {
+        FuzzyMatchList description_matches = rows[i].description_matches = str8_fuzzy_match(scratch.arena, query, rows[i].description);
+
+        B32 remove = false;
+
+        // NOTE(simon): If there are search terms and no matches, remove the item.
+        remove |= description_matches.needle_parts && !description_matches.count;
+
+        // NOTE(simon): If the number of mathes doesn't match the
+        // number of search terms, remove the item.
+        remove |= description_matches.needle_parts != description_matches.count;
+
+        if (remove) {
+            swap(rows[i], rows[row_count - 1], Row);
+            --row_count;
+        } else {
+            ++i;
+        }
+    }
+
+    // TODO(simon): We definitely need to sort these after filtering, otherwise
+    // contained properties might end up out of order, which will be really
+    // confusing.
+
+    // NOTE(simon): Build UI.
+    V2F32 tab_size   = r2f32_size(tab_rectangle);
+    F32   row_height = 2.0f * (F32) ui_font_size_top();
+
+    R1S64 visible_range = { 0 };
+    ui_palette(palette_from_theme(ThemePalette_Button))
+    ui_scroll_region(tab_size, row_height, row_count, &visible_range, 0, &tab_state->scroll_position)
+    ui_width(ui_size_fill())
+    for (S64 i = visible_range.min; i < visible_range.max; ++i) {
+        Row *row = &rows[i];
+
+        ui_row_begin();
+
+        ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+
+        // NOTE(simon): Only add a label to the first row of contained properties.
+        ui_width_next(ui_size_pixels(max_description_width, 1.0f));
+        if (row->index == 0) {
+            ui_text_align_next(UI_TextAlign_Right);
+            UI_Box *description_box = ui_label(row->description);
+            ui_box_set_fuzzy_match_list(description_box, row->description_matches);
+        } else {
+            ui_spacer();
+        }
+
+        ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+
+        struct spa_pod *new_value_pod = 0;
+        UI_Key ui_key = ui_key_from_string_format(ui_active_seed_key(), "%u%.*s%u", row->id, str8_expand(row->name), row->index);
+
+        // NOTE(simon): Do we have predetermined labels? Build a combo-box.
+        if (row->first_label) {
+            // NOTE(simon): Build como box option context menu.
+            UI_Key combo_key = ui_key_from_string(ui_key, str8_literal("combo"));
+            ui_context_menu(combo_key) {
+                UI_Box *box = ui_box_from_key(ui_key);
+
+                ui_extra_box_flags_next(UI_BoxFlag_DrawDropShadow);
+                ui_height_next(ui_size_children_sum(1.0f));
+
+                ui_width(ui_size_pixels(box->calculated_size.width, 1.0f))
+                ui_text_x_padding(5.0f)
+                ui_column()
+                for (Label *label = row->first_label; label; label = label->next) {
+                    UI_Input input = ui_button(label->label);
+                    if (input.flags & UI_InputFlag_Clicked) {
+                        new_value_pod = label->value;
+                        ui_context_menu_close();
+                    }
+                }
+            }
+
+            // NOTE(simon): Determine selected label.
+            // TODO(simon): How does this work with arrays?
+            Label *selected_label = 0;
+            for (Label *label = row->first_label; label; label = label->next) {
+                if (spa_pod_compare(row->pod_value, label->value) == 0) {
+                    selected_label = label;
+                    break;
+                }
+            }
+
+            // NOTE(simon): Build combox box.
+            UI_Box *combo_box = ui_create_box_from_key(
+                UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawText | UI_BoxFlag_DrawBorder |
+                UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive |
+                UI_BoxFlag_Clickable | UI_BoxFlag_KeyboardClickable,
+                ui_key
+            );
+            ui_parent(combo_box) {
+                ui_text_x_padding_next(5.0f);
+                if (selected_label) {
+                    ui_label(selected_label->label);
+                } else {
+                    ui_label(str8_literal("Unknown value"));
+                }
+                ui_width_next(ui_size_ems(2.0f, 1.0f));
+                ui_font_next(ui_icon_font());
+                ui_text_align_next(UI_TextAlign_Center);
+                ui_label(ui_icon_string_from_kind(ui_context_menu_is_open(combo_key) ? UI_IconKind_DownAngle : UI_IconKind_LeftAngle));
+            }
+
+            UI_Input input = ui_input_from_box(combo_box);
+            if (input.flags & UI_InputFlag_Clicked) {
+                ui_context_menu_open(combo_key, input.box->key, v2f32(0.0f, 0.0f));
+            }
+        } else {
+            switch (row->type->type) {
+                case SPA_TYPE_Bool: {
+                    // NOTE(simon): Booleans are either on or off, so enum and none
+                    // are the only reasonable choice types. We should probably do
+                    // a bit more validation though.
+                    bool *possible_values = SPA_POD_BODY(row->type);
+                    bool current_value = possible_values[0];
+                    if (row->raw_value) {
+                        current_value = *(bool *) row->raw_value;
+                    }
+
+                    if (row->choice == SPA_CHOICE_None) {
+                        ui_extra_box_flags_next(UI_BoxFlag_Disabled);
+                    }
+
+                    UI_Input input = { 0 };
+                    ui_column()
+                    ui_padding(ui_size_fill()) {
+                        input = ui_checkbox(current_value, ui_key);
+                    }
+
+                    if (input.flags & UI_InputFlag_Clicked) {
+                        struct spa_pod_bool new_value = SPA_POD_INIT_Bool(!current_value);
+                        new_value_pod = arena_push_no_zero(scratch.arena, sizeof(new_value), 16);
+                        memory_copy(new_value_pod, &new_value, sizeof(new_value));
+                    }
+                } break;
+                case SPA_TYPE_Id: {
+                    U32 *possible_values = SPA_POD_BODY(row->type);
+                    U32 current_value = possible_values[0];
+                    if (row->raw_value) {
+                        current_value = *(U32 *) row->raw_value;
+                    }
+
+                    // NOTE(simon): Look up the debug info for the id to find its string representation.
+                    const struct spa_type_info *value_type = 0;
+                    if (!row->params) {
+                        const struct spa_type_info *parameter_type = spa_debug_type_find(spa_type_props, row->id);
+                        // NOTE(simon): If we are contained, look at the inner type.
+                        if (parameter_type && row->container == SPA_TYPE_Array) {
+                            parameter_type = parameter_type->values;
+                        }
+                        if (parameter_type) {
+                            value_type = spa_debug_type_find(parameter_type->values, current_value);
+                        }
+                    }
+
+                    if (value_type) {
+                        ui_label(str8_cstr((CStr) spa_debug_type_short_name(value_type->name)));
+                    } else {
+                        ui_label_format("id %u", current_value);
+                    }
+                } break;
+                case SPA_TYPE_Int: {
+                    S32 *possible_values = SPA_POD_BODY(row->type);
+                    S32 current_value = possible_values[0];
+                    if (row->raw_value) {
+                        current_value = *(S32 *) row->raw_value;
+                    }
+
+                    S32 min_value = 0;
+                    S32 max_value = 0;
+                    if (row->choice == SPA_CHOICE_Range && row->type_count == 3) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                    } else if (row->choice == SPA_CHOICE_Step && row->type_count == 4) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                        // TODO(simon): Step.
+                    }
+
+                    if (min_value == 0 && max_value == 0) {
+                        ui_label_format("%d", current_value);
+                    } else {
+                        F32 current_value_f32 = (F32) current_value;
+                        ui_slider((F32) min_value, &current_value_f32, (F32) max_value, ui_key);
+                    }
+                } break;
+                case SPA_TYPE_Long: {
+                    S64 *possible_values = SPA_POD_BODY(row->type);
+                    S64 current_value = possible_values[0];
+                    if (row->raw_value) {
+                        current_value = *(S64 *) row->raw_value;
+                    }
+
+                    S64 min_value = 0.0f;
+                    S64 max_value = 0.0f;
+                    if (row->choice == SPA_CHOICE_Range && row->type_count == 3) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                    } else if (row->choice == SPA_CHOICE_Step && row->type_count == 4) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                        // TODO(simon): Step.
+                    }
+
+                    if (min_value == 0 && max_value == 0) {
+                        ui_label_format("%ld", current_value);
+                    } else {
+                        F32 current_value_f32 = (F32) current_value;
+                        ui_slider((F32) min_value, &current_value_f32, (F32) max_value, ui_key);
+                    }
+                } break;
+                case SPA_TYPE_Float: {
+                    F32 *possible_values = SPA_POD_BODY(row->type);
+                    F32 current_value = possible_values[0];
+                    if (row->raw_value) {
+                        current_value = *(F32 *) row->raw_value;
+                    }
+
+                    F32 min_value = 0.0f;
+                    F32 max_value = 0.0f;
+                    if (row->choice == SPA_CHOICE_Range && row->type_count == 3) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                    } else if (row->choice == SPA_CHOICE_Step && row->type_count == 4) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                        // TODO(simon): Step.
+                    }
+
+                    if (min_value == 0.0f && max_value == 0.0f) {
+                        ui_label_format("%f", current_value);
+                    } else {
+                        UI_Input input = ui_slider(min_value, &current_value, max_value, ui_key);
+                        if (input.flags & (UI_InputFlag_LeftDragging | UI_InputFlag_Commit)) {
+                            struct spa_pod_float new_value = SPA_POD_INIT_Float(current_value);
+                            new_value_pod = arena_push_no_zero(scratch.arena, sizeof(new_value), 16);
+                            memory_copy(new_value_pod, &new_value, sizeof(new_value));
+                        }
+                    }
+                } break;
+                case SPA_TYPE_Double: {
+                    F64 *possible_values = SPA_POD_BODY(row->type);
+                    F64 current_value = possible_values[0];
+                    if (row->raw_value) {
+                        current_value = *(F64 *) row->raw_value;
+                    }
+
+                    F64 min_value = 0.0f;
+                    F64 max_value = 0.0f;
+                    if (row->choice == SPA_CHOICE_Range && row->type_count == 3) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                    } else if (row->choice == SPA_CHOICE_Step && row->type_count == 4) {
+                        min_value = possible_values[1];
+                        max_value = possible_values[2];
+                        // TODO(simon): Step.
+                    }
+
+                    if (min_value == 0.0 && max_value == 0.0) {
+                        ui_label_format("%f", current_value);
+                    } else {
+                        // TODO(simon): F64 slider.
+                        F32 current_value_f32 = (F32) current_value;
+                        UI_Input input = ui_slider((F32) min_value, &current_value_f32, (F32) max_value, ui_key);
+                        if (input.flags & (UI_InputFlag_LeftDragging | UI_InputFlag_Commit)) {
+                            struct spa_pod_double new_value = SPA_POD_INIT_Double(current_value);
+                            new_value_pod = arena_push_no_zero(scratch.arena, sizeof(new_value), 16);
+                            memory_copy(new_value_pod, &new_value, sizeof(new_value));
+                        }
+                    }
+                } break;
+                case SPA_TYPE_String: {
+                    const char **possible_values = SPA_POD_BODY(row->type);
+                    const char *current_value_cstr = possible_values[0];
+                    if (row->raw_value) {
+                        current_value_cstr = (char *) row->raw_value;
+                    }
+
+                    Str8 current_value = str8_cstr((CStr) current_value_cstr);
+
+                    // TODO(simon): Use a label when not actively editing a field.
+                    tab_state->buffer_size = u64_min(current_value.size, array_count(tab_state->buffer));
+                    memory_copy(tab_state->buffer, current_value.data, tab_state->buffer_size);
+
+                    ui_text_x_padding(5.0) {
+                        ui_line_edit(tab_state->buffer, &tab_state->buffer_size, array_count(tab_state->buffer), &tab_state->cursor, &tab_state->mark, ui_key);
+                    }
+                } break;
+                case SPA_TYPE_Fd: {
+                    S64 *possible_values = SPA_POD_BODY(row->type);
+                    S64 current_value = possible_values[0];
+                    if (row->raw_value) {
+                        current_value = *(S64 *) row->raw_value;
+                    }
+                    ui_label_format("fd %ld", current_value);
+                } break;
+                default: {
+                    const struct spa_type_info *type_info = spa_debug_type_find(SPA_TYPE_ROOT, row->type->type);
+                    if (type_info && type_info->name) {
+                        Str8 type_name = str8_cstr((CStr) spa_debug_type_short_name(type_info->name));
+                        ui_label_format("Unsupported type '%.*s'", str8_expand(type_name));
+                    } else {
+                        ui_label_format("Unknown type %u", row->type->type);
+                    }
+                } break;
+            }
+        }
+        ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+        ui_row_end();
+
+        // NOTE(simon): Send an update command if we have a new value for the parameter.
+        if (new_value_pod) {
+            U8 buffer[1024];
+            struct spa_pod *pod = 0;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+            if (row->params) {
+                CStr name_cstr = cstr_from_str8(scratch.arena, row->name);
+                struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+                struct spa_pod *params_pod = spa_pod_builder_add_struct(
+                    &builder,
+                    SPA_POD_String(name_cstr), SPA_POD_Pod(new_value_pod)
+                );
+                pod = spa_pod_builder_add_object(
+                    &builder,
+                    SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
+                    SPA_PROP_params, SPA_POD_Pod(params_pod)
+                );
+            } else {
+                struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+                pod = spa_pod_builder_add_object(
+                    &builder,
+                    SPA_TYPE_OBJECT_Props, SPA_PARAM_Props,
+                    row->id, SPA_POD_Pod(new_value_pod)
+                );
+            }
+#pragma clang diagnostic pop
+
+            Pipewire_Command *command = pipewire_command_list_push(pipewire_state->command_arena, &pipewire_state->commands);
+            command->kind         = Pipewire_CommandKind_SetParameter;
+            command->entity       = selected_object->entity;
+            command->parameter_id = SPA_PARAM_Props;
+            command->parameter    = arena_push_no_zero(pipewire_state->command_arena, SPA_POD_SIZE(pod), 16);
+            memory_copy(command->parameter, pod, SPA_POD_SIZE(pod));
+        }
+    }
+
+    arena_end_temporary(scratch);
+}
+
 internal Void update(Void) {
     local U32 depth = 0;
 

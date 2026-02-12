@@ -135,16 +135,19 @@ internal S32 os_run(Str8List arguments) {
     Tab *tab_properties = create_tab(str8_literal("Properties"));
     Tab *tab_parameters = create_tab(str8_literal("Parameters"));
     Tab *tab_volume     = create_tab(str8_literal("Volume"));
+    Tab *tab_info       = create_tab(str8_literal("Property info"));
     tab_list->build       = build_list_tab;
     tab_graph->build      = build_graph_tab;
     tab_properties->build = build_property_tab;
     tab_parameters->build = build_parameter_tab;
     tab_volume->build     = build_volume_tab;
+    tab_info->build       = build_property_info_tab;
     insert_tab(left,   &nil_tab,       tab_properties);
     insert_tab(left,   tab_properties, tab_parameters);
-    insert_tab(left,  tab_parameters, tab_graph);
+    insert_tab(left,   tab_parameters, tab_graph);
     insert_tab(right,  &nil_tab,       tab_list);
-    insert_tab(right,  tab_list,       tab_volume);
+    insert_tab(right,  tab_list,       tab_info);
+    insert_tab(right,  tab_info,       tab_volume);
 
     window->active_panel = handle_from_panel(left);
 
