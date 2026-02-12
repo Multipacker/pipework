@@ -100,64 +100,71 @@ internal UI_Input ui_button_format(CStr format, ...) {
     return result;
 }
 
-internal UI_Input ui_checkbox(B32 is_checked, Str8 label) {
-    ui_width_next(ui_size_children_sum(1.0f));
-    ui_height_next(ui_size_children_sum(1.0f));
-    ui_row_begin();
-
+internal UI_Input ui_checkbox(B32 is_checked, UI_Key key) {
     ui_width_next(ui_size_ems(1.2f, 1.0f));
     ui_height_next(ui_size_ems(1.2f, 1.0f));
     ui_hover_cursor_next(Gfx_Cursor_Hand);
     ui_text_align_next(UI_TextAlign_Center);
     ui_font_next(ui_icon_font());
-    UI_Box *check = ui_create_box_from_string_format(
+    UI_Box *box = ui_create_box_from_key(
         UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawBorder | (is_checked ? UI_BoxFlag_DrawText : 0) |
         UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive |
         UI_BoxFlag_Clickable | UI_BoxFlag_KeyboardClickable,
-        "%.*s###check_%.*s", str8_expand(ui_icon_string_from_kind(UI_IconKind_Check)), str8_expand(label)
+        key
     );
-
-    ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
-
-    ui_width_next(ui_size_text_content(0.0f, 1.0f));
-    ui_height_next(ui_size_ems(1.2f, 1.0f));
-    ui_label(label);
-    ui_row_end();
-
-    UI_Input check_input = ui_input_from_box(check);
-    return check_input;
+    ui_box_set_string(box, ui_icon_string_from_kind(UI_IconKind_Check));
+    UI_Input input = ui_input_from_box(box);
+    return input;
 }
 
-internal UI_Input ui_checkbox_format(B32 is_checked, CStr format, ...) {
+internal UI_Input ui_checkbox_label(B32 is_checked, Str8 label) {
+    UI_Input input = { 0 };
+
+    UI_Key key = ui_key_from_string_format(ui_active_seed_key(), "check_%.*s", str8_expand(label));
+
+    ui_width_next(ui_size_children_sum(1.0f));
+
+    ui_height(ui_size_ems(1.2f, 1.0f))
+    ui_row() {
+        input = ui_checkbox(is_checked, key);
+        ui_spacer_sized(ui_size_ems(0.5f, 1.0f));
+        ui_width_next(ui_size_text_content(0.0f, 1.0f));
+        ui_label(label);
+    }
+
+    return input;
+}
+
+internal UI_Input ui_checkbox_label_format(B32 is_checked, CStr format, ...) {
     Arena_Temporary scratch = arena_get_scratch(0, 0);
     va_list arguments;
     va_start(arguments, format);
     Str8 string = str8_format_list(scratch.arena, format, arguments);
     va_end(arguments);
 
-    UI_Input result = ui_checkbox(is_checked, string);
+    UI_Input input = ui_checkbox_label(is_checked, string);
     arena_end_temporary(scratch);
-    return result;
+    return input;
 }
 
-internal UI_Input ui_checkbox_b32(B32 *is_checked, Str8 label) {
-    UI_Input input = ui_checkbox(*is_checked, label);
+internal UI_Input ui_checkbox_label_b32(B32 *is_checked, Str8 label) {
+    UI_Input input = ui_checkbox_label(*is_checked, label);
     if (input.flags & UI_InputFlag_Clicked) {
         *is_checked = !(*is_checked);
     }
     return input;
 }
 
-internal UI_Input ui_checkbox_b32_format(B32 *is_checked, CStr format, ...) {
+internal UI_Input ui_checkbox_label_b32_format(B32 *is_checked, CStr format, ...) {
     Arena_Temporary scratch = arena_get_scratch(0, 0);
     va_list arguments;
     va_start(arguments, format);
     Str8 string = str8_format_list(scratch.arena, format, arguments);
     va_end(arguments);
 
-    UI_Input result = ui_checkbox_b32(is_checked, string);
+    UI_Input input = ui_checkbox_label_b32(is_checked, string);
     arena_end_temporary(scratch);
-    return result;
+    return input;
 }
 
 
