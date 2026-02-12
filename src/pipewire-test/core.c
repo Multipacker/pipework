@@ -1638,16 +1638,10 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
         }
 
         if (output_node && input_node) {
-            F32 x_distance = output_node->position.x + output_node->size.x + 200.0f - input_node->position.x;
-            if (f32_abs(x_distance) > 100.0f) {
-                input_node->acceleration.x += x_distance / input_node->size.x;
-                output_node->acceleration.x -= x_distance / output_node->size.x;
-            }
-
-            F32 y_distance = output_node->position.y - input_node->position.y;
-            if (f32_abs(y_distance) > 200.0f) {
-                input_node->acceleration.y += y_distance / input_node->size.y;
-                output_node->acceleration.y -= y_distance / output_node->size.y;
+            V2F32 distance = v2f32_subtract(v2f32_add(v2f32_add(output_node->position, output_node->size), v2f32(200.0f, 0.0f)), input_node->position);
+            if (f32_abs(distance.x) > 100.0f) {
+                input_node->acceleration = v2f32_add(input_node->acceleration, v2f32_scale(distance, 1.0f / input_node->size.x));
+                output_node->acceleration = v2f32_subtract(output_node->acceleration, v2f32_scale(distance, 1.0f / output_node->size.x));
             }
         }
     }
