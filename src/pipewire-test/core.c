@@ -736,16 +736,7 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
 internal UI_Input object_button(Pipewire_Object *object) {
     Str8 name = name_from_object(ui_frame_arena(), object);
 
-    if (pipewire_object_from_handle(state->hovered_object) == object) {
-        UI_Palette palette = ui_palette_top();
-        palette.background = color_from_theme(ThemeColor_Focus);
-        ui_palette_next(palette);
-    }
-
     UI_Input input = ui_button_format("%.*s###%p", str8_expand(name), object);
-    if (input.flags & UI_InputFlag_Hovering) {
-        state->hovered_object_next = pipewire_handle_from_object(object);
-    }
     if (input.flags & UI_InputFlag_Clicked) {
         state->selected_object_next = pipewire_handle_from_object(object);
     }
@@ -1768,12 +1759,6 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             graph_node->last_frame_touched = state->frame_index;
             graph_node->size = v2f32(node_width, node_height);
 
-            if (pipewire_object_from_handle(state->hovered_object) == node) {
-                UI_Palette palette = ui_palette_top();
-                palette.background = color_from_theme(ThemeColor_Focus);
-                ui_palette_next(palette);
-            }
-
             FuzzyMatchList node_name_matches = str8_fuzzy_match(frame_arena(), query_from_tab(), node_name);
             B32 filter_out = false;
 
@@ -1790,7 +1775,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             ui_width_next(ui_size_pixels(node_width, 1.0f));
             ui_height_next(ui_size_pixels(node_height, 1.0f));
             ui_layout_axis_next(Axis2_Y);
-            UI_Box *node_box = ui_create_box_from_string_format(UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawDropShadow | UI_BoxFlag_Clickable | (filter_out ? UI_BoxFlag_Disabled : 0), "###node_%u", node->id);
+            UI_Box *node_box = ui_create_box_from_string_format(UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawDropShadow | UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive | UI_BoxFlag_Clickable | (filter_out ? UI_BoxFlag_Disabled : 0), "###node_%u", node->id);
             ui_parent(node_box)
             ui_width(ui_size_fill())
             ui_height(ui_size_pixels(row_height, 1.0f)) {
@@ -1911,9 +1896,6 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             }
 
             UI_Input node_input = ui_input_from_box(node_box);
-            if (node_input.flags & UI_InputFlag_Hovering) {
-                state->hovered_object_next = pipewire_handle_from_object(node);
-            }
             if (node_input.flags & UI_InputFlag_RightClicked) {
                 state->selected_object_next = pipewire_handle_from_object(node);
             }
@@ -2472,8 +2454,6 @@ internal Void update(Void) {
     state->context_stack = &state->base_context;
 
     state->selected_object = state->selected_object_next;
-    state->hovered_object  = state->hovered_object_next;
-    memory_zero_struct(&state->hovered_object_next);
 
     Gfx_EventList graphics_events = { 0 };
     if (depth == 0) {
