@@ -1052,6 +1052,9 @@ internal UI_Box *ui_create_box_from_key(UI_BoxFlags flags, UI_Key key) {
     box->previous = &global_ui_null_box;
     box->first    = &global_ui_null_box;
     box->last     = &global_ui_null_box;
+    memory_zero_struct(&box->string);
+    memory_zero_struct(&box->text);
+    memory_zero_struct(&box->fuzzy_matches);
 
     // NOTE(simon): Set links
     box->parent = ui->parent_stack.top->item;
