@@ -3034,6 +3034,7 @@ internal Void update(Void) {
     Binding bindings[] = {
         { Gfx_Key_Tab,       Gfx_KeyModifier_Control,                         CommandKind_NextTab,              },
         { Gfx_Key_Tab,       Gfx_KeyModifier_Shift | Gfx_KeyModifier_Control, CommandKind_PreviousTab,          },
+        { Gfx_Key_W,         Gfx_KeyModifier_Control,                         CommandKind_CloseTab,             },
         { Gfx_Key_H,         Gfx_KeyModifier_Control,                         CommandKind_FocusPanelLeft,       },
         { Gfx_Key_J,         Gfx_KeyModifier_Control,                         CommandKind_FocusPanelDown,       },
         { Gfx_Key_K,         Gfx_KeyModifier_Control,                         CommandKind_FocusPanelUp,         },
