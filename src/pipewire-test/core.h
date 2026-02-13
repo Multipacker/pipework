@@ -139,6 +139,8 @@ struct Tab {
     U64 query_mark;
     U64 query_cursor;
     U64 query_size;
+
+    Pipewire_Handle active_object;
 };
 
 global Tab nil_tab = {
@@ -219,7 +221,9 @@ global Window nil_window = {
     X(Handle,          destination_panel,  DestinationPanel)  \
     X(Handle,          destination_window, DestinationWindow) \
     X(Direction2,      direction,          Direction)         \
-    X(Pipewire_Handle, port,               Port)
+    /* TODO(simon): Maybe these two should merge into one context member? */ \
+    X(Pipewire_Handle, port,               Port)              \
+    X(Pipewire_Handle, pipewire_object,    PipewireObject)
 
 typedef enum {
     ContextMember_Null,
@@ -239,6 +243,7 @@ struct Context {
 };
 
 #define COMMANDS(X)                                                                                                        \
+    X(Null,                 "",                            "")                                                             \
     X(CloseTab,             "Close tab",                   "Close the current tab")                                        \
     X(MoveTab,              "Move tab",                    "")                                                             \
     X(NextTab,              "Next tab",                    "Switch to the next tab")                                       \
@@ -289,15 +294,32 @@ struct Context {
     X(Accept,               "Accept",                      "Accepts the current action")                                   \
     X(Cancel,               "Cancel",                      "Cancles the current action")                                   \
     X(OpenSearch,           "Open search",                 "Open the search field for the current tab")                    \
-    X(CloseSearch,          "Close search",                "Close the search field for the current tab")
+    X(CloseSearch,          "Close search",                "Close the search field for the current tab")                   \
+    X(OpenProperties,       "Open properties",             "Open the properties tab for a PipeWire object")                \
+    X(OpenParameters,       "Open parameters",             "Open the parameters tab for a PipeWire object")                \
+    X(OpenPropertyInfo,     "Open property info",          "Open the property info tab for a PipeWire object")             \
+    X(OpenNewProperties,    "Open new properties",         "Open the properties for a PipeWire object in a new tab")       \
+    X(OpenNewParameters,    "Open new parameters",         "Open the parameters for a PipeWire object in a new tab")       \
+    X(OpenNewPropertyInfo,  "Open new property info",      "Open the property info for a PipeWire object in a new tab")
 
 typedef enum {
-    CommandKind_Null,
 #define X(name, display_name, description) CommandKind_##name,
     COMMANDS(X)
 #undef X
     CommandKind_COUNT,
 } CommandKind;
+
+global Str8 command_name_from_kind[] = {
+#define X(name, display_name, description) [CommandKind_##name] = str8_literal_compile(display_name),
+    COMMANDS(X)
+#undef X
+};
+
+global Str8 command_description_from_kind[] = {
+#define X(name, display_name, description) [CommandKind_##name] = str8_literal_compile(description),
+    COMMANDS(X)
+#undef X
+};
 
 typedef struct Command Command;
 struct Command {
@@ -346,12 +368,12 @@ struct State {
     Context      *drag_context;
     ContextMember drag_context_member;
 
+
     F32 font_size;
 
     Pipewire_Handle selected_object;
     Pipewire_Handle selected_object_next;
-
-    Pipewire_Handle selected_port;
+    UI_Key object_context_menu_key;
 };
 
 global State *state;
@@ -393,6 +415,7 @@ internal Void  destroy_tab(Tab *tab);
 #define tab_state_from_type(type) ((type *) tab_state_from_size_alignment(sizeof(type), _Alignof(type)))
 internal Void *tab_state_from_size_alignment(U64 size, U64 alignment);
 internal Str8  query_from_tab(Void);
+internal Pipewire_Object *active_object_from_tab(Void);
 
 // NOTE(simon): Panels.
 

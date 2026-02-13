@@ -358,6 +358,12 @@ internal Str8 query_from_tab(Void) {
     return result;
 }
 
+internal Pipewire_Object *active_object_from_tab(Void) {
+    Tab *tab = tab_from_handle(top_context()->tab);
+    Pipewire_Object *object = pipewire_object_from_handle(tab->active_object);
+    return object;
+}
+
 
 
 
@@ -739,6 +745,7 @@ internal UI_Input object_button(Pipewire_Object *object) {
     UI_Input input = ui_button_format("%.*s###%p", str8_expand(name), object);
     if (input.flags & UI_InputFlag_Clicked) {
         state->selected_object_next = pipewire_handle_from_object(object);
+        ui_context_menu_open(state->object_context_menu_key, input.box->key, v2f32(0.0f, 0.0f));
     }
     return input;
 }
@@ -851,7 +858,7 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     PropertyRow *rows = 0;
     S64 row_count = 0;
     {
-        Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
+        Pipewire_Object *selected_object = active_object_from_tab();
 
         PropertyRow *first_row = 0;
         PropertyRow *last_row  = 0;
@@ -1049,7 +1056,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
         tab_state->expansion_table = arena_push_array(tab_from_handle(top_context()->tab)->arena, ExpansionList, tab_state->expansion_table_size);
     }
 
-    Pipewire_Object *selected_object = pipewire_object_from_handle(state->selected_object);
+    Pipewire_Object *selected_object = active_object_from_tab();
 
     // NOTE(simon): Collect all parameters.
     typedef struct Row Row;
@@ -1456,7 +1463,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                 UI_Box *label_box = ui_create_box_from_string_format(
                     UI_BoxFlag_DrawBorder | UI_BoxFlag_Clip |
                     (row->is_expandable ? UI_BoxFlag_Clickable : 0),
-                    "###paramter_%lu", row->hash
+                    "###parameter_%lu", row->hash
                 );
                 ui_parent(label_box) {
                     // NOTE(simon): Indentation due to nesting depth.
@@ -1562,6 +1569,8 @@ internal V4F32 color_from_port_media_type(Pipewire_Object *object) {
 }
 
 internal BUILD_TAB_FUNCTION(build_graph_tab) {
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+
     typedef struct GraphNode GraphNode;
     struct GraphNode {
         GraphNode *next;
@@ -1589,9 +1598,9 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     TabState *tab_state = tab_state_from_type(TabState);
 
     // NOTE(simon): Collect pipewire objects.
-    Pipewire_ObjectArray nodes = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Node);
-    Pipewire_ObjectArray ports = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Port);
-    Pipewire_ObjectArray links = pipewire_objects_from_kind(frame_arena(), Pipewire_ObjectKind_Link);
+    Pipewire_ObjectArray nodes = pipewire_objects_from_kind(scratch.arena, Pipewire_ObjectKind_Node);
+    Pipewire_ObjectArray ports = pipewire_objects_from_kind(scratch.arena, Pipewire_ObjectKind_Port);
+    Pipewire_ObjectArray links = pipewire_objects_from_kind(scratch.arena, Pipewire_ObjectKind_Link);
 
     quicksort(ports.objects, ports.count, pipewire_port_compare);
 
@@ -1705,7 +1714,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                 }
             }
 
-            Str8 node_name = name_from_object(frame_arena(), node);
+            Str8 node_name = name_from_object(scratch.arena, node);
             F32 node_name_width = font_cache_size_from_font_text_size(ui_font_top(), node_name, ui_font_size_top()).width + 2.0f * ui_text_x_padding_top();
 
             // NOTE(simon): Calculate node size.
@@ -1753,7 +1762,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             graph_node->last_frame_touched = state->frame_index;
             graph_node->size = v2f32(node_width, node_height);
 
-            FuzzyMatchList node_name_matches = str8_fuzzy_match(frame_arena(), query_from_tab(), node_name);
+            FuzzyMatchList node_name_matches = str8_fuzzy_match(scratch.arena, query_from_tab(), node_name);
             B32 filter_out = false;
 
             // NOTE(simon): If there are search terms and no matches, remove the item.
@@ -1799,7 +1808,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                         continue;
                     }
 
-                    PortNode *port_node = arena_push_struct(frame_arena(), PortNode);
+                    PortNode *port_node = arena_push_struct(scratch.arena, PortNode);
                     port_node->port = port;
 
                     Str8 direction = pipewire_string_from_property_name(port, str8_literal("port.direction"));
@@ -1892,6 +1901,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             UI_Input node_input = ui_input_from_box(node_box);
             if (node_input.flags & UI_InputFlag_RightClicked) {
                 state->selected_object_next = pipewire_handle_from_object(node);
+                ui_context_menu_open(state->object_context_menu_key, node_box->key, v2f32(0.0f, 0.0f));
             }
             if (node_input.flags & UI_InputFlag_LeftDragging) {
                 if (node_input.flags & UI_InputFlag_LeftPressed) {
@@ -1998,6 +2008,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             sll_stack_push(tab_state->node_freelist, node);
         }
     }
+
+    arena_end_temporary(scratch);
 }
 
 // NOTE(simon): Based off of PulseAudios guide lines:
@@ -2451,7 +2463,7 @@ internal BUILD_TAB_FUNCTION(build_property_info_tab) {
 
     TabState *tab_state = tab_state_from_type(TabState);
 
-    Pipewire_Object    *selected_object = pipewire_object_from_handle(state->selected_object);
+    Pipewire_Object    *selected_object = active_object_from_tab();
     Pipewire_Parameter *prop_infos      = pipewire_parameter_from_id(selected_object, SPA_PARAM_PropInfo);
     Pipewire_Parameter *props           = pipewire_parameter_from_id(selected_object, SPA_PARAM_Props);
 
@@ -3709,6 +3721,183 @@ internal Void update(Void) {
                         tab->query_size = 0;
                     }
                 } break;
+                case CommandKind_OpenProperties: {
+                    Pipewire_Object *object = pipewire_object_from_handle(top_context()->pipewire_object);
+                    Window *active_window = window_from_handle(top_context()->window);
+                    Panel  *active_panel  = panel_from_handle(top_context()->panel);
+
+                    // TODO(simon): Introduce a scoring mechanism in the case of multiple tabs.
+                    Panel *selected_panel = &nil_panel;
+                    Tab   *selected_tab   = &nil_tab;
+                    for (Panel *panel = active_window->root_panel; !is_nil_panel(panel); panel = panel_iterator_depth_first_pre_order(panel, active_window->root_panel).next) {
+                        for (Tab *tab = panel->first_tab; !is_nil_tab(tab); tab = tab->next) {
+                            if (tab->build == build_property_tab) {
+                                selected_panel = panel;
+                                selected_tab   = tab;
+                                goto found_properties_tab;
+                            }
+                        }
+                    }
+
+found_properties_tab:
+                    if (!pipewire_object_is_nil(object)) {
+                        // NOTE(simon): Either make the tab active or create a new one.
+                        if (!is_nil_panel(selected_panel) && !is_nil_tab(selected_tab)) {
+                            selected_panel->active_tab  = handle_from_tab(selected_tab);
+                            active_window->active_panel = handle_from_panel(selected_panel);
+                        } else if (!is_nil_panel(active_panel))  {
+                            selected_tab = create_tab(str8_literal(""));
+                            selected_tab->build = build_property_tab;
+                            insert_tab(active_panel, tab_from_handle(active_panel->active_tab), selected_tab);
+                        }
+
+                        // NOTE(simon): Set up the tab.
+                        if (!is_nil_tab(selected_tab) && object != pipewire_object_from_handle(selected_tab->active_object)) {
+                            selected_tab->active_object = top_context()->pipewire_object;
+
+                            selected_tab->state = 0;
+                            arena_reset(selected_tab->arena);
+
+                            Str8 object_name = name_from_object(scratch.arena, object);
+                            selected_tab->name = str8_format(selected_tab->arena, "%.*s properties", str8_expand(object_name));
+
+                        }
+                    }
+                } break;
+                case CommandKind_OpenParameters: {
+                    Pipewire_Object *object = pipewire_object_from_handle(top_context()->pipewire_object);
+                    Window *active_window = window_from_handle(top_context()->window);
+                    Panel  *active_panel  = panel_from_handle(top_context()->panel);
+
+                    // TODO(simon): Introduce a scoring mechanism in the case of multiple tabs.
+                    Panel *selected_panel = &nil_panel;
+                    Tab   *selected_tab   = &nil_tab;
+                    for (Panel *panel = active_window->root_panel; !is_nil_panel(panel); panel = panel_iterator_depth_first_pre_order(panel, active_window->root_panel).next) {
+                        for (Tab *tab = panel->first_tab; !is_nil_tab(tab); tab = tab->next) {
+                            if (tab->build == build_parameter_tab) {
+                                selected_panel = panel;
+                                selected_tab   = tab;
+                                goto found_parameters_tab;
+                            }
+                        }
+                    }
+
+found_parameters_tab:
+                    if (!pipewire_object_is_nil(object)) {
+                        // NOTE(simon): Either make the tab active or create a new one.
+                        if (!is_nil_panel(selected_panel) && !is_nil_tab(selected_tab)) {
+                            selected_panel->active_tab  = handle_from_tab(selected_tab);
+                            active_window->active_panel = handle_from_panel(selected_panel);
+                        } else if (!is_nil_panel(active_panel))  {
+                            selected_tab = create_tab(str8_literal(""));
+                            selected_tab->build = build_parameter_tab;
+                            insert_tab(active_panel, tab_from_handle(active_panel->active_tab), selected_tab);
+                        }
+
+                        // NOTE(simon): Set up the tab.
+                        if (!is_nil_tab(selected_tab) && object != pipewire_object_from_handle(selected_tab->active_object)) {
+                            selected_tab->active_object = top_context()->pipewire_object;
+
+                            selected_tab->state = 0;
+                            arena_reset(selected_tab->arena);
+
+                            Str8 object_name = name_from_object(scratch.arena, object);
+                            selected_tab->name = str8_format(selected_tab->arena, "%.*s parameters", str8_expand(object_name));
+
+                        }
+                    }
+                } break;
+                case CommandKind_OpenPropertyInfo: {
+                    Pipewire_Object *object = pipewire_object_from_handle(top_context()->pipewire_object);
+                    Window *active_window = window_from_handle(top_context()->window);
+                    Panel  *active_panel  = panel_from_handle(top_context()->panel);
+
+                    // TODO(simon): Introduce a scoring mechanism in the case of multiple tabs.
+                    Panel *selected_panel = &nil_panel;
+                    Tab   *selected_tab   = &nil_tab;
+                    for (Panel *panel = active_window->root_panel; !is_nil_panel(panel); panel = panel_iterator_depth_first_pre_order(panel, active_window->root_panel).next) {
+                        for (Tab *tab = panel->first_tab; !is_nil_tab(tab); tab = tab->next) {
+                            if (tab->build == build_property_info_tab) {
+                                selected_panel = panel;
+                                selected_tab   = tab;
+                                goto found_property_info_tab;
+                            }
+                        }
+                    }
+
+found_property_info_tab:
+                    if (!pipewire_object_is_nil(object)) {
+                        // NOTE(simon): Either make the tab active or create a new one.
+                        if (!is_nil_panel(selected_panel) && !is_nil_tab(selected_tab)) {
+                            selected_panel->active_tab  = handle_from_tab(selected_tab);
+                            active_window->active_panel = handle_from_panel(selected_panel);
+                        } else if (!is_nil_panel(active_panel))  {
+                            selected_tab = create_tab(str8_literal(""));
+                            selected_tab->build = build_property_info_tab;
+                            insert_tab(active_panel, tab_from_handle(active_panel->active_tab), selected_tab);
+                        }
+
+                        // NOTE(simon): Set up the tab.
+                        if (!is_nil_tab(selected_tab) && object != pipewire_object_from_handle(selected_tab->active_object)) {
+                            selected_tab->active_object = top_context()->pipewire_object;
+
+                            selected_tab->state = 0;
+                            arena_reset(selected_tab->arena);
+
+                            Str8 object_name = name_from_object(scratch.arena, object);
+                            selected_tab->name = str8_format(selected_tab->arena, "%.*s property info", str8_expand(object_name));
+
+                        }
+                    }
+                } break;
+                case CommandKind_OpenNewProperties: {
+                    Pipewire_Object *object = pipewire_object_from_handle(top_context()->pipewire_object);
+                    Window *active_window = window_from_handle(top_context()->window);
+                    Panel  *active_panel  = panel_from_handle(top_context()->panel);
+
+                    if (!pipewire_object_is_nil(object) && !is_nil_panel(active_panel)) {
+                        Tab *selected_tab = create_tab(str8_literal(""));
+                        selected_tab->build = build_property_tab;
+                        insert_tab(active_panel, tab_from_handle(active_panel->active_tab), selected_tab);
+
+                        // NOTE(simon): Set up the tab.
+                        selected_tab->active_object = top_context()->pipewire_object;
+                        Str8 object_name = name_from_object(scratch.arena, object);
+                        selected_tab->name = str8_format(selected_tab->arena, "%.*s properties", str8_expand(object_name));
+                    }
+                } break;
+                case CommandKind_OpenNewParameters: {
+                    Pipewire_Object *object = pipewire_object_from_handle(top_context()->pipewire_object);
+                    Window *active_window = window_from_handle(top_context()->window);
+                    Panel  *active_panel  = panel_from_handle(top_context()->panel);
+
+                    if (!pipewire_object_is_nil(object) && !is_nil_panel(active_panel)) {
+                        Tab *selected_tab = create_tab(str8_literal(""));
+                        selected_tab->build = build_parameter_tab;
+                        insert_tab(active_panel, tab_from_handle(active_panel->active_tab), selected_tab);
+
+                        // NOTE(simon): Set up the tab.
+                        selected_tab->active_object = top_context()->pipewire_object;
+                        Str8 object_name = name_from_object(scratch.arena, object);
+                        selected_tab->name = str8_format(selected_tab->arena, "%.*s parameters", str8_expand(object_name));
+                    }
+                } break;
+                case CommandKind_OpenNewPropertyInfo: {
+                    Pipewire_Object *object = pipewire_object_from_handle(top_context()->pipewire_object);
+                    Window *active_window = window_from_handle(top_context()->window);
+                    Panel  *active_panel  = panel_from_handle(top_context()->panel);
+
+                    if (!pipewire_object_is_nil(object) && !is_nil_panel(active_panel)) {
+                        Tab *selected_tab = create_tab(str8_literal(""));
+                        selected_tab->build = build_property_info_tab;
+                        insert_tab(active_panel, tab_from_handle(active_panel->active_tab), selected_tab);
+
+                        // NOTE(simon): Set up the tab.
+                        selected_tab->active_object = top_context()->pipewire_object;
+                        Str8 object_name = name_from_object(scratch.arena, object);
+                        selected_tab->name = str8_format(selected_tab->arena, "%.*s property info", str8_expand(object_name));
+                    }
+                } break;
                 case CommandKind_COUNT: {
                 } break;
             }
@@ -3968,6 +4157,45 @@ internal Void update(Void) {
                         .destination_panel = handle_from_panel(drop_target->split_panel),
                         .direction         = drop_target->split_direction
                     );
+                }
+            }
+        }
+
+        // NOTE(simon): Build context menu for pipewire objects.
+        state->object_context_menu_key = ui_key_from_string(ui_active_seed_key(), str8_literal("object_context_menu"));
+        ui_context_menu(state->object_context_menu_key)
+        ui_palette(palette_from_theme(ThemePalette_Button)) {
+            CommandKind commands[] = {
+                CommandKind_OpenProperties,
+                CommandKind_OpenParameters,
+                CommandKind_OpenPropertyInfo,
+                CommandKind_OpenNewProperties,
+                CommandKind_OpenNewParameters,
+                CommandKind_OpenNewPropertyInfo,
+            };
+            ui_extra_box_flags_next(UI_BoxFlag_DrawDropShadow);
+            ui_width_next(ui_size_children_sum(1.0f));
+            ui_height_next(ui_size_children_sum(1.0f));
+
+            F32 max_width = 0.0f;
+            for (U64 i = 0; i < array_count(commands); ++i) {
+                Str8 command_name = command_name_from_kind[commands[i]];
+                F32 width = font_cache_text(scratch.arena, ui_font_top(), command_name, ui_font_size_top()).size.width;
+                max_width = f32_max(max_width, width);
+            }
+
+            ui_width(ui_size_pixels(5.0f + max_width + 5.0f, 1.0f))
+            ui_column()
+            ui_text_x_padding(5.0f)
+            ui_text_y_padding(2.0f)
+            ui_height(ui_size_text_content(0.0f, 1.0f))
+            for (U64 i = 0; i < array_count(commands); ++i) {
+                Str8 command_name = command_name_from_kind[commands[i]];
+                Str8 command_description = command_description_from_kind[commands[i]];
+                UI_Input input = ui_button_format("%.*s###%d", str8_expand(command_name), commands[i]);
+                if (input.flags & UI_InputFlag_Clicked) {
+                    push_command(commands[i], .pipewire_object = state->selected_object);
+                    ui_context_menu_close();
                 }
             }
         }
