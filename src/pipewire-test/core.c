@@ -4771,6 +4771,24 @@ found_property_info_tab:
                         }
                     }
 
+                    if (parent->flags & (UI_BoxFlag_DrawSideRight | UI_BoxFlag_DrawSideTop | UI_BoxFlag_DrawSideLeft | UI_BoxFlag_DrawSideBottom)) {
+                        V4F32 color = parent->palette.border;
+                        R2F32 rectangle = parent->calculated_rectangle;
+                        F32 thickness = 2.0f;
+                        if (parent->flags & UI_BoxFlag_DrawSideRight) {
+                            draw_rectangle(r2f32(rectangle.max.x - thickness, rectangle.min.y, rectangle.max.x, rectangle.max.y), color, 0.0f, 0.0f, 0.0f);
+                        }
+                        if (parent->flags & UI_BoxFlag_DrawSideTop) {
+                            draw_rectangle(r2f32(rectangle.min.x, rectangle.min.y, rectangle.max.x, rectangle.min.y + thickness), color, 0.0f, 0.0f, 0.0f);
+                        }
+                        if (parent->flags & UI_BoxFlag_DrawSideLeft) {
+                            draw_rectangle(r2f32(rectangle.min.x, rectangle.min.y, rectangle.min.x + thickness, rectangle.max.y), color, 0.0f, 0.0f, 0.0f);
+                        }
+                        if (parent->flags & UI_BoxFlag_DrawSideBottom) {
+                            draw_rectangle(r2f32(rectangle.max.x - thickness, rectangle.min.y, rectangle.max.x, rectangle.max.y), color, 0.0f, 0.0f, 0.0f);
+                        }
+                    }
+
                     // NOTE(simon): Draw focus overlay.
                     if (parent->flags & UI_BoxFlag_Clickable && parent->focus_active_t > 0.01f && !(parent->flags & UI_BoxFlag_DisableFocusOverlay)) {
                         V4F32 color = color_from_theme(ThemeColor_Focus);
