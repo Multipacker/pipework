@@ -46,8 +46,9 @@ global Str8 icon_kind_text[] = {
     X(DisabledOverlay,           disabled_overlay,            "Disabled overlay")            \
     X(DropSiteOverlay,           drop_site_overlay,           "Drop site overlay")           \
     X(InactivePanelOverlay,      inactive_panel_overlay,      "Inactive panel overlay")      \
-    X(BaseBackground,            base_background,             "Base background")             \
-    X(BaseBorder,                base_border,                 "Base border")                 \
+    X(Background,                background,                  "Background")                  \
+    X(Border,                    border,                      "Border")                      \
+    X(AlternativeBackground,     alternative_background,      "Alternative background")      \
     X(TitleBarBackground,        title_bar_background,        "Title bar background")        \
     X(TitleBarBorder,            title_bar_border,            "Title bar border")            \
     X(TabBackground,             tab_background,              "Tab background")              \
@@ -56,8 +57,6 @@ global Str8 icon_kind_text[] = {
     X(InactiveTabBorder,         inactive_tab_border,         "Inactive tab border")         \
     X(ButtonBackground,          button_background,           "Button background")           \
     X(ButtonBorder,              button_border,               "Button border")               \
-    X(SecondaryButtonBackground, secondary_button_background, "Secondary button background") \
-    X(SecondaryButtonBorder,     secondary_button_border,     "Secondary button border")     \
     X(PortUnknown,               port_unknown,                "Unknown port")                \
     X(PortAudio,                 port_audio,                  "Audio port")                  \
     X(PortVideo,                 port_video,                  "Video port")                  \
@@ -99,7 +98,6 @@ typedef enum {
     ThemePalette_Base,
     ThemePalette_TitleBar,
     ThemePalette_Button,
-    ThemePalette_SecondaryButton,
     ThemePalette_Tab,
     ThemePalette_InactiveTab,
     ThemePalette_DropSiteOverlay,

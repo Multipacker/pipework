@@ -76,7 +76,7 @@ internal S32 os_run(Str8List arguments) {
 
         theme->text  = gray0;
         theme->weak_text = gray5;
-        theme->hover = gray4;
+        theme->hover = v4f32(1.0f, 1.0f, 1.0f, 1.0f);
         theme->cursor = orange4;
         theme->selection = gray1;
         theme->selection.a = 0.3f;
@@ -87,11 +87,17 @@ internal S32 os_run(Str8List arguments) {
         theme->drop_site_overlay        = gray7;
         theme->drop_site_overlay.a      = 0.5f;
         theme->inactive_panel_overlay   = v4f32(0.0f, 0.0f, 0.0f, 0.8f);
-        theme->inactive_panel_overlay.a = 0.5f;
+        theme->inactive_panel_overlay.a = 0.3f;
         theme->drop_shadow              = v4f32(0.0f, 0.0f, 0.0f, 0.8f);
 
-        theme->base_background         = gray9;
-        theme->base_border             = gray8;
+        theme->background              = gray9;
+        theme->border                  = gray7;
+        theme->alternative_background  = v4f32(
+            0.8f * gray9.r + 0.2f * gray8.r,
+            0.8f * gray9.g + 0.2f * gray8.g,
+            0.8f * gray9.b + 0.2f * gray8.b,
+            1.0f
+        );
         theme->title_bar_background    = gray8;
         theme->title_bar_border        = gray7;
         theme->tab_background          = gray6;
@@ -100,8 +106,6 @@ internal S32 os_run(Str8List arguments) {
         theme->inactive_tab_border     = gray6;
         theme->button_background       = gray8;
         theme->button_border           = gray7;
-        theme->secondary_button_background = gray7;
-        theme->secondary_button_border     = gray6;
 
         theme->port_unknown     = gray0;
         theme->port_audio       = blue6;

@@ -742,10 +742,21 @@ internal Str8 name_from_object(Arena *arena, Pipewire_Object *object) {
 internal UI_Input object_button(Pipewire_Object *object) {
     Str8 name = name_from_object(ui_frame_arena(), object);
 
-    UI_Input input = ui_button_format("%.*s###%p", str8_expand(name), object);
+    ui_hover_cursor_next(Gfx_Cursor_Hand);
+    UI_Box *box = ui_create_box_from_string_format(
+        UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawText |
+        UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive |
+        UI_BoxFlag_Clickable | UI_BoxFlag_KeyboardClickable,
+        "%.*s###%p", str8_expand(name), object
+    );
+    UI_Input input = ui_input_from_box(box);
+
     if (input.flags & UI_InputFlag_Clicked) {
         state->selected_object_next = pipewire_handle_from_object(object);
         ui_context_menu_open(state->object_context_menu_key, input.box->key, v2f32(0.0f, 0.0f));
+    }
+    if (input.flags & UI_InputFlag_Hovering) {
+        box->flags |= UI_BoxFlag_DrawDropShadow;
     }
     return input;
 }
@@ -823,15 +834,22 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
     // NOTE(simon): Build list of all objects.
     R1S64 visible_range = { 0 };
     ui_palette(palette_from_theme(ThemePalette_Button))
-    ui_scroll_region(tab_size, row_height, row_count, &visible_range, 0, &tab_state->all_objects_scroll_position) {
-        ui_text_x_padding(5.0f)
-        ui_width(ui_size_fill())
-        ui_height(ui_size_pixels(row_height, 1.0f))
-        for (S64 i = visible_range.min; i < visible_range.max; ++i) {
-            PropertyRow *row = &rows[i];
-            UI_Input input = object_button(row->reference);
-            ui_box_set_fuzzy_match_list(input.box, row->value_matches);
+    ui_scroll_region(tab_size, row_height, row_count, &visible_range, 0, &tab_state->all_objects_scroll_position)
+    ui_palette(palette_from_theme(ThemePalette_Base))
+    ui_text_x_padding(5.0f)
+    ui_width(ui_size_fill())
+    for (S64 i = visible_range.min; i < visible_range.max; ++i) {
+        if (i % 2 == 1) {
+            UI_Palette palette = ui_palette_top();
+            palette.background = color_from_theme(ThemeColor_AlternativeBackground);
+            ui_palette_next(palette);
         }
+        if (i + 1 == visible_range.max) {
+            ui_extra_box_flags_next(UI_BoxFlag_DrawDropShadow);
+        }
+        PropertyRow *row = &rows[i];
+        UI_Input input = object_button(row->reference);
+        ui_box_set_fuzzy_match_list(input.box, row->value_matches);
     }
 
     arena_end_temporary(scratch);
@@ -990,10 +1008,17 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
         for (S64 i = visible_range.min; i < visible_range.max; ++i) {
             PropertyRow *row = &rows[i];
 
+            UI_Palette palette = ui_palette_top();
+            if (i % 2 == 1) {
+                palette.background = color_from_theme(ThemeColor_AlternativeBackground);
+            }
+            ui_palette_push(palette);
+
+            ui_extra_box_flags_next(UI_BoxFlag_DrawBackground | (i + 1 == visible_range.max) * UI_BoxFlag_DrawDropShadow);
             ui_width(ui_size_parent_percent(1.0f, 1.0f))
             ui_row() {
                 ui_width_next(ui_size_parent_percent(tab_state->column_widths[0], 1.0f));
-                ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
+                ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawSideLeft);
                 ui_row() {
                     ui_width_next(ui_size_text_content(0.0f, 1.0f));
                     UI_Box *label = ui_label(row->label);
@@ -1001,12 +1026,11 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
                 }
 
                 ui_width_next(ui_size_parent_percent(tab_state->column_widths[1], 1.0f));
-                ui_extra_box_flags_next(UI_BoxFlag_DrawBorder);
+                ui_extra_box_flags_next(UI_BoxFlag_DrawSideLeft);
                 ui_row() {
                     ui_width_next(ui_size_fill());
                     // NOTE(simon): Create a button if we are a reference.
                     if (!pipewire_object_is_nil(row->reference)) {
-                        ui_palette_next(palette_from_theme(ThemePalette_Button));
                         UI_Input input = object_button(row->reference);
                         ui_box_set_fuzzy_match_list(input.box, row->value_matches);
                     } else {
@@ -1015,6 +1039,8 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
                     }
                 }
             }
+
+            ui_palette_pop();
         }
     }
 
@@ -1444,6 +1470,12 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
         for (S64 i = visible_range.min; i < visible_range.max; ++i) {
             Row *row = &rows[i];
 
+            UI_Palette palette = ui_palette_top();
+            if (i % 2 == 1) {
+                palette.background = color_from_theme(ThemeColor_AlternativeBackground);
+            }
+            ui_palette_push(palette);
+
             // NOTE(simon): Find expansion state.
             Expansion *expanded = 0;
             ExpansionList *expansion_list = &tab_state->expansion_table[row->hash % tab_state->expansion_table_size];
@@ -1454,24 +1486,34 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
                 }
             }
 
+            UI_BoxFlags row_flags = UI_BoxFlag_DrawBackground;
+            if (i + 1 == visible_range.max) {
+                row_flags |= UI_BoxFlag_DrawDropShadow;
+            }
+
             ui_width_next(ui_size_fill());
+            ui_extra_box_flags_next(row_flags);
             ui_row() {
                 // NOTE(simon): Build label.
                 ui_width_next(ui_size_parent_percent(tab_state->column_widths[0], 1.0f));
                 ui_layout_axis_next(Axis2_X);
                 ui_hover_cursor_next(Gfx_Cursor_Hand);
                 UI_Box *label_box = ui_create_box_from_string_format(
-                    UI_BoxFlag_DrawBorder | UI_BoxFlag_Clip |
+                    UI_BoxFlag_DrawSideLeft | UI_BoxFlag_Clip |
                     (row->is_expandable ? UI_BoxFlag_Clickable : 0),
                     "###parameter_%lu", row->hash
                 );
                 ui_parent(label_box) {
                     // NOTE(simon): Indentation due to nesting depth.
-                    ui_spacer_sized(ui_size_ems((F32) row->depth, 1.0f));
+                    ui_extra_box_flags(UI_BoxFlag_DrawSideLeft)
+                    for (U64 j = 0; j < row->depth; ++j) {
+                        ui_spacer_sized(ui_size_ems(1.0f , 1.0f));
+                    }
 
                     // NOTE(simon): Expansion button or spacer depending on
                     // if we are expandable or not.
-                    ui_width_next(ui_size_ems(1.5f, 1.0f));
+                    ui_width_next(ui_size_ems(2.0f, 1.0f));
+                    ui_extra_box_flags_next(UI_BoxFlag_DrawSideLeft);
                     ui_text_align_next(UI_TextAlign_Center);
                     ui_font_next(ui_icon_font());
                     if (row->is_expandable) {
@@ -1508,7 +1550,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
 
                 // NOTE(simon): Build value.
                 ui_width_next(ui_size_parent_percent(tab_state->column_widths[1], 1.0f));
-                ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawBorder);
+                ui_extra_box_flags_next(UI_BoxFlag_Clip | UI_BoxFlag_DrawSideLeft);
                 ui_row() {
                     ui_width_next(ui_size_text_content(0.0f, 1.0f));
                     ui_label(row->value);
@@ -1516,12 +1558,14 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
 
                 // NOTE(simon): Build type.
                 ui_width_next(ui_size_parent_percent(tab_state->column_widths[2], 1.0f));
-                ui_extra_box_flags_next(UI_BoxFlag_DrawBorder);
+                ui_extra_box_flags_next(UI_BoxFlag_DrawSideLeft);
                 ui_row() {
                     ui_width_next(ui_size_text_content(0.0f, 1.0f));
                     ui_label(row->type);
                 }
             }
+
+            ui_palette_pop();
         }
     }
 }
@@ -2400,7 +2444,18 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
         UI_Input slider_input = { 0 };
         UI_Input mute_input   = { 0 };
 
-        ui_extra_box_flags_next(UI_BoxFlag_DrawBorder);
+        if (i % 2 == 1) {
+            UI_Palette palette = ui_palette_top();
+            palette.background = color_from_theme(ThemeColor_AlternativeBackground);
+            ui_palette_next(palette);
+        }
+
+        UI_BoxFlags row_flags = UI_BoxFlag_DrawBackground;
+        if (i + 1 == visible_range.max) {
+            row_flags |= UI_BoxFlag_DrawDropShadow;
+        }
+
+        ui_extra_box_flags_next(row_flags);
         ui_width(ui_size_fill())
         ui_row()
         ui_padding(ui_size_ems(0.5f, 1.0f))
@@ -3926,8 +3981,8 @@ found_property_info_tab:
         state->palettes[code].cursor    = state->theme.cursor;
         state->palettes[code].selection = state->theme.selection;
     }
-    state->palettes[ThemePalette_Base].background = state->theme.base_background;
-    state->palettes[ThemePalette_Base].border     = state->theme.base_border;
+    state->palettes[ThemePalette_Base].background = state->theme.background;
+    state->palettes[ThemePalette_Base].border     = state->theme.border;
     state->palettes[ThemePalette_Base].text       = state->theme.text;
     state->palettes[ThemePalette_TitleBar].background = state->theme.title_bar_background;
     state->palettes[ThemePalette_TitleBar].border     = state->theme.title_bar_border;
@@ -3935,9 +3990,6 @@ found_property_info_tab:
     state->palettes[ThemePalette_Button].background = state->theme.button_background;
     state->palettes[ThemePalette_Button].border     = state->theme.button_border;
     state->palettes[ThemePalette_Button].text       = state->theme.text;
-    state->palettes[ThemePalette_SecondaryButton].background = state->theme.secondary_button_background;
-    state->palettes[ThemePalette_SecondaryButton].border     = state->theme.secondary_button_border;
-    state->palettes[ThemePalette_SecondaryButton].text       = state->theme.text;
     state->palettes[ThemePalette_Tab].background = state->theme.tab_background;
     state->palettes[ThemePalette_Tab].border     = state->theme.tab_border;
     state->palettes[ThemePalette_Tab].text       = state->theme.text;
@@ -4493,7 +4545,7 @@ found_property_info_tab:
             ui_height_next(ui_size_pixels(r2f32_size(tab_bar_rectangle).height, 1.0f));
             ui_layout_axis_next(Axis2_X);
             UI_Box *tab_bar_box = ui_create_box_from_string_format(
-                UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawBorder | UI_BoxFlag_Clickable | UI_BoxFlag_OverflowX | UI_BoxFlag_Clip,
+                UI_BoxFlag_Clickable | UI_BoxFlag_OverflowX | UI_BoxFlag_Clip,
                 "###tab_bar_box_%p", panel
             );
 
@@ -4502,8 +4554,8 @@ found_property_info_tab:
             ui_height(ui_size_pixels(tab_height, 1.0f))
             ui_layout_axis(Axis2_X)
             ui_parent(tab_bar_box)
-            ui_corner_radius_00(ui_size_ems(0.75f, 1.0f).value)
-            ui_corner_radius_01(ui_size_ems(0.75f, 1.0f).value)
+            ui_corner_radius_00(ui_size_ems(0.5f, 1.0f).value)
+            ui_corner_radius_01(ui_size_ems(0.5f, 1.0f).value)
             for (Tab *tab = panel->first_tab; !is_nil_tab(tab); tab = tab->next) {
                 ui_palette_push(palette_from_theme(tab == tab_from_handle(panel->active_tab) ? ThemePalette_Tab : ThemePalette_InactiveTab));
 
@@ -4608,7 +4660,7 @@ found_property_info_tab:
         window->draw_list = draw_list_create();
         draw_list_scope(window->draw_list) {
             // NOTE(simon): Draw background.
-            draw_rectangle(client_rectangle, color_from_theme(ThemeColor_BaseBackground), 0, 0, 0);
+            draw_rectangle(client_rectangle, color_from_theme(ThemeColor_Background), 0, 0, 0);
 
             // NOTE(simon): Draw border.
             draw_rectangle(r2f32_pad(client_rectangle, 1.0f), color_from_theme(ThemeColor_TitleBarBorder), 0, 1.0f, 1.0f);
@@ -4639,9 +4691,11 @@ found_property_info_tab:
                             active_t = 0.0f;
                         }
                         V4F32 color = color_from_theme(ThemeColor_Hover);
-                        color.a *= 0.2f * (box->hot_t - active_t);
+                        color.a *= 0.05f * (box->hot_t - active_t);
 
-                        Render_Shape *rect = draw_rectangle(box->calculated_rectangle, color, 0.0f, 0.0f, 1.0f);
+                        Render_Shape *rect = draw_rectangle(box->calculated_rectangle, v4f32(0.0f, 0.0f, 0.0f, 0.0f), 0.0f, 0.0f, 1.0f);
+                        rect->colors[Corner_00] = color;
+                        rect->colors[Corner_01] = color;
                         memory_copy(rect->radies, box->corner_radies, sizeof(rect->radies));
                     }
 
@@ -4801,7 +4855,7 @@ found_property_info_tab:
                     if (parent->flags & UI_BoxFlag_Clickable && parent->focus_hot_t > 0.01f && !(parent->flags & UI_BoxFlag_DisableFocusBorder)) {
                         V4F32 color = color_from_theme(ThemeColor_Focus);
                         color.a *= parent->focus_hot_t;
-                        Render_Shape *shape = draw_rectangle(parent->calculated_rectangle, color, 0.0f, 1.0f, 1.0f);
+                        Render_Shape *shape = draw_rectangle(r2f32_pad(parent->calculated_rectangle, 1.0f), color, 0.0f, 1.0f, 1.0f);
                         memory_copy(shape->radies, parent->corner_radies, sizeof(shape->radies));
                     }
 
