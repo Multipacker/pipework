@@ -1982,6 +1982,15 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
 
         // NOTE(simon): Draw connections.
         Draw_List *connections = draw_list_create();
+        F32 line_spacing = 10.0f * (F32) ui_font_size_top();
+        draw_list_scope(connections)
+        for (F32 x = -f32_mod(tab_state->graph_offset.x, line_spacing); x < tab_size.width; x += line_spacing) {
+            draw_line(v2f32(x, 0.0f), v2f32(x, tab_size.height), color_from_theme(ThemeColor_AlternativeBackground), 1.0f, 0.0f, 0.0f);
+        }
+        draw_list_scope(connections)
+        for (F32 y = -f32_mod(tab_state->graph_offset.y, line_spacing); y < tab_size.height; y += line_spacing) {
+            draw_line(v2f32(0.0f, y), v2f32(tab_size.width, y), color_from_theme(ThemeColor_AlternativeBackground), 1.0f, 0.0f, 0.0f);
+        }
         draw_list_scope(connections)
         for (U64 i = 0; i < links.count; ++i) {
             Pipewire_Object *link = links.objects[i];
