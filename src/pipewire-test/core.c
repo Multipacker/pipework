@@ -4251,8 +4251,7 @@ found_property_info_tab:
 
         // NOTE(simon): Build context menu for pipewire objects.
         state->object_context_menu_key = ui_key_from_string(ui_active_seed_key(), str8_literal("object_context_menu"));
-        ui_context_menu(state->object_context_menu_key)
-        ui_palette(palette_from_theme(ThemePalette_Button)) {
+        ui_context_menu(state->object_context_menu_key) {
             CommandKind commands[] = {
                 CommandKind_OpenProperties,
                 CommandKind_OpenParameters,
@@ -4261,8 +4260,7 @@ found_property_info_tab:
                 CommandKind_OpenNewParameters,
                 CommandKind_OpenNewPropertyInfo,
             };
-            ui_extra_box_flags_next(UI_BoxFlag_DrawDropShadow);
-            ui_width_next(ui_size_children_sum(1.0f));
+            ui_extra_box_flags_next(UI_BoxFlag_DrawDropShadow | UI_BoxFlag_DrawBorder);
             ui_height_next(ui_size_children_sum(1.0f));
 
             F32 max_width = 0.0f;
@@ -4275,15 +4273,30 @@ found_property_info_tab:
             ui_width(ui_size_pixels(5.0f + max_width + 5.0f, 1.0f))
             ui_column()
             ui_text_x_padding(5.0f)
-            ui_text_y_padding(2.0f)
-            ui_height(ui_size_text_content(0.0f, 1.0f))
+            ui_height(ui_size_ems(2.0f, 1.0f))
+            ui_hover_cursor(Gfx_Cursor_Hand)
             for (U64 i = 0; i < array_count(commands); ++i) {
+                if (i % 2 == 1) {
+                    UI_Palette palette = ui_palette_top();
+                    palette.background = color_from_theme(ThemeColor_AlternativeBackground);
+                    ui_palette_next(palette);
+                }
+
                 Str8 command_name = command_name_from_kind[commands[i]];
                 Str8 command_description = command_description_from_kind[commands[i]];
-                UI_Input input = ui_button_format("%.*s###%d", str8_expand(command_name), commands[i]);
+                UI_Box *box = ui_create_box_from_string_format(
+                    UI_BoxFlag_DrawBackground | UI_BoxFlag_DrawText |
+                    UI_BoxFlag_DrawHot | UI_BoxFlag_DrawActive |
+                    UI_BoxFlag_Clickable | UI_BoxFlag_KeyboardClickable,
+                    "%.*s###%d", str8_expand(command_name), commands[i]
+                );
+                UI_Input input = ui_input_from_box(box);
                 if (input.flags & UI_InputFlag_Clicked) {
                     push_command(commands[i], .pipewire_object = state->selected_object);
                     ui_context_menu_close();
+                }
+                if (input.flags & UI_InputFlag_Hovering) {
+                    box->flags |= UI_BoxFlag_DrawDropShadow;
                 }
             }
         }
