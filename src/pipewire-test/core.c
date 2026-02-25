@@ -1656,12 +1656,12 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     Pipewire_ObjectArray ports = pipewire_objects_from_kind(scratch.arena, Pipewire_ObjectKind_Port);
     Pipewire_ObjectArray links = pipewire_objects_from_kind(scratch.arena, Pipewire_ObjectKind_Link);
 
-    quicksort(ports.objects, ports.count, pipewire_port_compare);
-
     V2F32 tab_size    = r2f32_size(tab_rectangle);
     F32   row_height  = 2.0f * (F32) ui_font_size_top();
     F32   port_radius = ui_size_ems(0.5f, 1.0f).value;
     F32   node_separation = 20.0f;
+
+    prof_zone_begin(prof_node_physics, "node physics");
 
     // NOTE(simon): Damping.
     for (GraphNode *node = tab_state->first_node; node; node = node->next) {
@@ -1718,6 +1718,8 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
             request_frame();
         }
     }
+
+    prof_zone_end(prof_node_physics);
 
     // NOTE(simon): Build graph.
     ui_width_next(ui_size_pixels(tab_size.width, 1.0f));
@@ -1853,14 +1855,23 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
                     output_column = ui_create_box(0);
                 }
 
+                // NOTE(simon): Collect and sort node ports.
+                Pipewire_ObjectArray node_ports = { 0 };
+                // TODO(simon): We should avoid overallocating space for node ports.
+                node_ports.objects = arena_push_array(scratch.arena, Pipewire_Object *, ports.count);
+                for (U64 j = 0; j < ports.count; ++j) {
+                    Pipewire_Object *port = ports.objects[j];
+                    if (pipewire_u64_from_property_name(port, str8_literal(PW_KEY_NODE_ID)).value == node->id) {
+                        node_ports.objects[node_ports.count++] = port;
+                    }
+                }
+                quicksort(node_ports.objects, node_ports.count, pipewire_port_compare);
+
                 // NOTE(simon): Build ports.
                 U32 input_port_index = 0;
                 U32 output_port_index = 0;
-                for (U64 j = 0; j < ports.count; ++j) {
-                    Pipewire_Object *port = ports.objects[j];
-                    if (pipewire_u64_from_property_name(port, str8_literal(PW_KEY_NODE_ID)).value != node->id) {
-                        continue;
-                    }
+                for (U64 j = 0; j < node_ports.count; ++j) {
+                    Pipewire_Object *port = node_ports.objects[j];
 
                     PortNode *port_node = arena_push_struct(scratch.arena, PortNode);
                     port_node->port = port;
