@@ -126,7 +126,7 @@ internal S32 os_run(Str8List arguments) {
     gfx_init();
     render_init();
 
-    Window *window = create_window(str8_literal("Pipewire-test"), 1280, 720);
+    Window *window = create_window(str8_literal("PipeWork"), 1280, 720);
     Panel *left   = create_panel();
     Panel *right  = create_panel();
     left->percentage_of_parent   = 0.7f;
