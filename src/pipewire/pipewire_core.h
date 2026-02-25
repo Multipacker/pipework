@@ -6,11 +6,12 @@
 #pragma clang diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
 #pragma clang diagnostic ignored "-Wconversion"
 #pragma clang diagnostic ignored "-Wc2y-extensions"
-#include <spa/utils/result.h>
 #include <spa/debug/pod.h>
+#include <spa/param/audio/format-utils.h>
 #include <spa/pod/builder.h>
 #include <spa/pod/compare.h>
 #include <spa/pod/parser.h>
+#include <spa/utils/result.h>
 #include <pipewire/pipewire.h>
 #include <pipewire/extensions/metadata.h>
 #pragma clang diagnostic pop
@@ -133,6 +134,7 @@ typedef enum {
     Pipewire_CommandKind_SetParameter,
     Pipewire_CommandKind_Create,
     Pipewire_CommandKind_Delete,
+    Pipewire_CommandKind_EnableCapture,
     Pipewire_CommandKind_COUNT,
 } Pipewire_CommandKind;
 
@@ -144,6 +146,7 @@ struct Pipewire_Command {
 
     // NOTE(simon): The object to act on.
     Pipewire_Handle entity;
+    U32 serial;
 
     // NOTE(simon): Properties.
     U64 property_count;
@@ -251,11 +254,16 @@ struct Pipewire_Entity {
     // Pipewires IDs.
     U64 generation;
 
-    // NOTE(simon): Pipewire handle.
-    struct pw_proxy *proxy;
+    struct spa_audio_info format;
+    F32 channel_volumes[SPA_AUDIO_MAX_CHANNELS];
 
-    // NOTE(simon): Listener handle.
+    // NOTE(simon): Pipewire handles.
+    struct pw_proxy  *proxy;
+    struct pw_stream *capture;
+
+    // NOTE(simon): Listener handles.
     struct spa_hook object_listener;
+    struct spa_hook capture_listener;
 
     // NOTE(simon): Low-level state tracking.
     B8    changed;
@@ -359,6 +367,7 @@ internal Void                  pipewire_execute_commands(Pipewire_CommandList co
 internal Void pipewire_delete(Pipewire_Object *object);
 internal Void pipewire_set_volume(Pipewire_Object *object, Pipewire_Volume volume);
 internal Void pipewire_link(Pipewire_Object *output, Pipewire_Object *input);
+internal Void pipewire_capture(Pipewire_Object *object);
 
 // NOTE(simon): Objects <-> handle.
 internal B32              pipewire_object_is_nil(Pipewire_Object *object);
@@ -501,6 +510,16 @@ global struct pw_registry_events pipewire_registry_listener = {
     .global        = pipewire_registry_global,
     .global_remove = pipewire_registry_global_remove,
 #define global static
+};
+
+// NOTE(simon): Stream listeners.
+internal Void pipewire_stream_param_changed(Void *data, U32 id, const struct spa_pod *param);
+internal Void pipewire_stream_process(Void *userdata);
+
+global const struct pw_stream_events pipewire_stream_events = {
+    PW_VERSION_STREAM_EVENTS,
+    .param_changed = pipewire_stream_param_changed,
+    .process       = pipewire_stream_process,
 };
 
 #endif // PIPEWIRE_OWN_CORE_H

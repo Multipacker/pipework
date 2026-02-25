@@ -519,6 +519,7 @@ internal Str8 pipewire_serialized_string_from_command_list(Arena *arena, Pipewir
     for (Pipewire_Command *command = commands.first; command; command = command->next) {
         str8_serial_push_type(scratch.arena, &serialized, &command->kind);
         str8_serial_push_type(scratch.arena, &serialized, &command->entity);
+        str8_serial_push_type(scratch.arena, &serialized, &command->serial);
 
         // NOTE(simon): Write properties.
         str8_serial_push_type(scratch.arena, &serialized, &command->property_count);
@@ -559,6 +560,7 @@ internal Pipewire_CommandList pipewire_command_list_from_serialized_string(Arena
 
         read_offset += str8_deserial_read_type(string, read_offset, &command->kind);
         read_offset += str8_deserial_read_type(string, read_offset, &command->entity);
+        read_offset += str8_deserial_read_type(string, read_offset, &command->serial);
 
         // NOTE(simon): Read properties.
         read_offset += str8_deserial_read_type(string, read_offset, &command->property_count);
@@ -657,6 +659,36 @@ internal Void pipewire_execute_commands(Pipewire_CommandList commands) {
                 if (!pipewire_entity_is_nil(entity)) {
                     pw_registry_destroy(pipewire_state->registry, entity->id);
                 }
+            } break;
+            case Pipewire_CommandKind_EnableCapture: {
+                Arena_Temporary scratch = arena_get_scratch(0, 0);
+                Pipewire_Entity *entity = pipewire_entity_from_handle(command->entity);
+
+                if (!pipewire_entity_is_nil(entity) && !entity->capture) {
+                    CStr serial_cstr = cstr_from_str8(scratch.arena, str8_format(scratch.arena, "%u", command->serial));
+                    struct pw_properties *props = pw_properties_new(
+                        PW_KEY_MEDIA_TYPE,     "Audio",
+                        PW_KEY_MEDIA_CATEGORY, "Capture",
+                        PW_KEY_MEDIA_ROLE,     "Music",
+                        PW_KEY_TARGET_OBJECT,  serial_cstr,
+                        NULL
+                    );
+
+                    U8 buffer[1024];
+                    struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+                    const struct spa_pod *param = spa_format_audio_raw_build(&builder, SPA_PARAM_EnumFormat, &SPA_AUDIO_INFO_RAW_INIT(.format = SPA_AUDIO_FORMAT_F32));
+
+                    entity->capture = pw_stream_new(pipewire_state->core, "Audio Capture", props);
+                    pw_stream_add_listener(entity->capture, &entity->capture_listener, &pipewire_stream_events, entity);
+                    pw_stream_connect(
+                        entity->capture,
+                        PW_DIRECTION_INPUT,
+                        PW_ID_ANY,
+                        PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_RT_PROCESS,
+                        &param, 1
+                    );
+                }
+                arena_end_temporary(scratch);
             } break;
             case Pipewire_CommandKind_COUNT: {
             } break;
@@ -810,6 +842,15 @@ internal Void pipewire_link(Pipewire_Object *output, Pipewire_Object *input) {
         command->property_count = property_count;
         command->properties     = arena_push_array_no_zero(pipewire_state->command_arena, Pipewire_Property, command->property_count);
         memory_copy(command->properties, properties, command->property_count * sizeof(Pipewire_Property));
+    }
+}
+
+internal Void pipewire_capture(Pipewire_Object *object) {
+    if (object->kind == Pipewire_ObjectKind_Node) {
+        Pipewire_Command *command = pipewire_command_list_push(pipewire_state->command_arena, &pipewire_state->commands);
+        command->kind           = Pipewire_CommandKind_EnableCapture;
+        command->entity         = object->entity;
+        command->serial         = (U32) pipewire_u64_from_property_name(object, str8_literal(PW_KEY_OBJECT_SERIAL)).value;
     }
 }
 
@@ -1138,10 +1179,14 @@ internal Void pipewire_entity_free(Pipewire_Entity *entity) {
             }
         }
 
-        // NOTE(simon): Unhook listeners.
-        spa_hook_remove(&entity->object_listener);
+        // NOTE(simon): Destroy capture objects.
+        if (entity->capture) {
+            spa_hook_remove(&entity->capture_listener);
+            pw_stream_destroy(entity->capture);
+        }
 
-        // NOTE(simon): Destroy handles.
+        // NOTE(simon): Destroy proxy objects.
+        spa_hook_remove(&entity->object_listener);
         pw_proxy_destroy(entity->proxy);
 
         // NOTE(simon): Remove from id -> entity map.
@@ -1839,4 +1884,52 @@ internal Void pipewire_registry_global_remove(Void *data, U32 id) {
 
         pipewire_entity_free(entity);
     }
+}
+
+
+
+// NOTE(simon): Stream listeners.
+
+internal Void pipewire_stream_param_changed(Void *data, U32 id, const struct spa_pod *param) {
+    Pipewire_Entity *entity = data;
+    if (param && id == SPA_PARAM_Format) {
+        B32 good = true;
+
+        good &= spa_format_parse(param, &entity->format.media_type, &entity->format.media_subtype) >= 0;
+        // NOTE(simon): Only accept raw audio for now.
+        good &= entity->format.media_type == SPA_MEDIA_TYPE_audio && entity->format.media_subtype == SPA_MEDIA_SUBTYPE_raw;
+
+        if (good) {
+            spa_format_audio_raw_parse(param, &entity->format.info.raw);
+        }
+    }
+}
+
+internal Void pipewire_stream_process(Void *userdata) {
+    prof_function_begin();
+    Pipewire_Entity *entity = userdata;
+    printf("%p\n", (Void *) entity);
+    struct pw_buffer *buffer = pw_stream_dequeue_buffer(entity->capture);
+    if (buffer) {
+        struct spa_data data = buffer->buffer->datas[0];
+        F32 *samples = data.data;
+        if (samples) {
+            U32 channel_count = u32_min(entity->format.info.raw.channels, array_count(entity->channel_volumes));
+            U32 sample_count  = data.chunk->size / sizeof(F32);
+
+            for (U32 channel = 0; channel < channel_count; ++channel) {
+                F32 max = 0.0f;
+
+                for (U32 n = channel; n < sample_count; n += channel_count) {
+                    max = f32_max(max, f32_abs(samples[n]));
+                }
+
+                entity->channel_volumes[channel] = max;
+                printf("%u: %f\n", channel, max);
+            }
+        }
+
+        pw_stream_queue_buffer(entity->capture, buffer);
+    }
+    prof_function_end();
 }

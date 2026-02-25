@@ -298,7 +298,8 @@ struct Context {
     X(OpenPropertyInfo,     "Open property info",          "Open the property info tab for a PipeWire object")             \
     X(OpenNewProperties,    "Open new properties",         "Open the properties for a PipeWire object in a new tab")       \
     X(OpenNewParameters,    "Open new parameters",         "Open the parameters for a PipeWire object in a new tab")       \
-    X(OpenNewPropertyInfo,  "Open new property info",      "Open the property info for a PipeWire object in a new tab")
+    X(OpenNewPropertyInfo,  "Open new property info",      "Open the property info for a PipeWire object in a new tab")    \
+    X(EnableCapture,        "Enable capture",              "Enable capture for a PipeWire object")
 
 typedef enum {
 #define X(name, display_name, description) CommandKind_##name,

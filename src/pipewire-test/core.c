@@ -3989,6 +3989,12 @@ found_property_info_tab:
                         selected_tab->name = str8_format(selected_tab->arena, "%.*s property info", str8_expand(object_name));
                     }
                 } break;
+                case CommandKind_EnableCapture: {
+                    Pipewire_Object *object = pipewire_object_from_handle(top_context()->pipewire_object);
+                    if (!pipewire_object_is_nil(object)) {
+                        pipewire_capture(object);
+                    }
+                } break;
                 case CommandKind_COUNT: {
                 } break;
             }
@@ -4259,6 +4265,7 @@ found_property_info_tab:
                 CommandKind_OpenNewProperties,
                 CommandKind_OpenNewParameters,
                 CommandKind_OpenNewPropertyInfo,
+                CommandKind_EnableCapture,
             };
             ui_extra_box_flags_next(UI_BoxFlag_DrawDropShadow | UI_BoxFlag_DrawBorder);
             ui_height_next(ui_size_children_sum(1.0f));
