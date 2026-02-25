@@ -2,13 +2,10 @@
 typedef COMPARE_FUNCTION(CompareFunction);
 
 #define quicksort(items, item_count, compare) quicksort_internal((Void *) items, item_count, sizeof(*items), compare)
-internal Void quicksort_internal(U8 *items, U64 item_count, U64 item_size, CompareFunction *compare) {
+internal Void quicksort_internal_buffer(U8 *items, U64 item_count, U64 item_size, CompareFunction *compare, U8 *temp) {
     if (item_count <= 1) {
         return;
     }
-
-    Arena_Temporary scratch = arena_get_scratch(0, 0);
-    U8 *temp = arena_push_array_no_zero(scratch.arena, U8, item_size);
 
     // NOTE(simon): Choose pivot by median of three.
     // NOTE(simon): This makes the sort unstable!!!
@@ -57,11 +54,17 @@ internal Void quicksort_internal(U8 *items, U64 item_count, U64 item_size, Compa
     memory_copy(&items[0],                       &items[pivot_index * item_size], item_size);
     memory_copy(&items[pivot_index * item_size], temp,                            item_size);
 
-    arena_end_temporary(scratch);
-
     // NOTE(simon): Recurse
-    quicksort_internal(items, pivot_index, item_size, compare);
-    quicksort_internal(&items[(pivot_index + 1) * item_size], item_count - pivot_index - 1, item_size, compare);
+    quicksort_internal_buffer(items, pivot_index, item_size, compare, temp);
+    quicksort_internal_buffer(&items[(pivot_index + 1) * item_size], item_count - pivot_index - 1, item_size, compare, temp);
+}
+internal Void quicksort_internal(U8 *items, U64 item_count, U64 item_size, CompareFunction *compare) {
+    prof_function_begin()
+    Arena_Temporary scratch = arena_get_scratch(0, 0);
+    U8 *temp = arena_push_array_no_zero(scratch.arena, U8, item_size);
+    quicksort_internal_buffer(items, item_count, item_size, compare, temp);
+    arena_end_temporary(scratch);
+    prof_function_end();
 }
 
 typedef struct PropertyRow PropertyRow;
@@ -765,6 +768,7 @@ internal BUILD_TAB_FUNCTION(build_nil_tab) {
 }
 
 internal BUILD_TAB_FUNCTION(build_list_tab) {
+    prof_function_begin();
     Arena_Temporary scratch = arena_get_scratch(0, 0);
 
     typedef struct TabState TabState;
@@ -853,9 +857,11 @@ internal BUILD_TAB_FUNCTION(build_list_tab) {
     }
 
     arena_end_temporary(scratch);
+    prof_function_end();
 }
 
 internal BUILD_TAB_FUNCTION(build_property_tab) {
+    prof_function_begin();
     Arena_Temporary scratch = arena_get_scratch(0, 0);
 
     typedef struct TabState TabState;
@@ -1045,9 +1051,11 @@ internal BUILD_TAB_FUNCTION(build_property_tab) {
     }
 
     arena_end_temporary(scratch);
+    prof_function_end();
 }
 
 internal BUILD_TAB_FUNCTION(build_parameter_tab) {
+    prof_function_begin();
     typedef struct Expansion Expansion;
     struct Expansion {
         Expansion *next;
@@ -1568,6 +1576,7 @@ internal BUILD_TAB_FUNCTION(build_parameter_tab) {
             ui_palette_pop();
         }
     }
+    prof_function_end();
 }
 
 internal V4F32 color_from_port_media_type(Pipewire_Object *object) {
@@ -1613,6 +1622,7 @@ internal V4F32 color_from_port_media_type(Pipewire_Object *object) {
 }
 
 internal BUILD_TAB_FUNCTION(build_graph_tab) {
+    prof_function_begin();
     Arena_Temporary scratch = arena_get_scratch(0, 0);
 
     typedef struct GraphNode GraphNode;
@@ -2054,6 +2064,7 @@ internal BUILD_TAB_FUNCTION(build_graph_tab) {
     }
 
     arena_end_temporary(scratch);
+    prof_function_end();
 }
 
 // NOTE(simon): Based off of PulseAudios guide lines:
@@ -2355,6 +2366,7 @@ internal UI_Input light_toggle_b32(B32 *is_checked, Str8 label, UI_Key key) {
 }
 
 internal BUILD_TAB_FUNCTION(build_volume_tab) {
+    prof_function_begin();
     Arena_Temporary scratch = arena_get_scratch(0, 0);
 
     typedef struct TabState TabState;
@@ -2502,9 +2514,11 @@ internal BUILD_TAB_FUNCTION(build_volume_tab) {
     }
 
     arena_end_temporary(scratch);
+    prof_function_end();
 }
 
 internal BUILD_TAB_FUNCTION(build_property_info_tab) {
+    prof_function_begin();
     Arena_Temporary scratch = arena_get_scratch(0, 0);
 
     typedef struct TabState TabState;
@@ -3048,6 +3062,7 @@ internal BUILD_TAB_FUNCTION(build_property_info_tab) {
     }
 
     arena_end_temporary(scratch);
+    prof_function_end();
 }
 
 internal Void update(Void) {

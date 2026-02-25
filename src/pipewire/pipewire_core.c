@@ -312,6 +312,7 @@ internal Pipewire_EventList pipewire_event_list_from_serialized_string(Arena *ar
 }
 
 internal Void pipewire_apply_events(Pipewire_EventList events) {
+    prof_function_begin();
     for (Pipewire_Event *event = events.first; event; event = event->next) {
         switch (event->kind) {
             case Pipewire_EventKind_Create: {
@@ -496,6 +497,7 @@ internal Void pipewire_apply_events(Pipewire_EventList events) {
             } break;
         }
     }
+    prof_function_end();
 }
 
 
@@ -591,6 +593,7 @@ internal Pipewire_CommandList pipewire_command_list_from_serialized_string(Arena
 }
 
 internal Void pipewire_execute_commands(Pipewire_CommandList commands) {
+    prof_function_begin();
     for (Pipewire_Command *command = commands.first; command; command = command->next) {
         switch (command->kind) {
             case Pipewire_CommandKind_Null: {
@@ -659,6 +662,7 @@ internal Void pipewire_execute_commands(Pipewire_CommandList commands) {
             } break;
         }
     }
+    prof_function_end();
 }
 
 
@@ -917,6 +921,7 @@ internal Void pipewire_free_string(Str8 string) {
 
 
 internal Pipewire_ObjectArray pipewire_objects_from_kind(Arena *arena, Pipewire_ObjectKind kind) {
+    prof_function_begin();
     // NOTE(simon): Count the number of objects.
     U64 count = 0;
     for (U64 i = 0; i < pipewire_state->object_map_capacity; ++i) {
@@ -944,6 +949,7 @@ internal Pipewire_ObjectArray pipewire_objects_from_kind(Arena *arena, Pipewire_
         }
     }
 
+    prof_function_end();
     return result;
 }
 
@@ -1312,6 +1318,7 @@ internal Void pipewire_set_wakeup_hook(VoidFunction *wakeup_hook) {
 // NOTE(simon): Control to user thread communication.
 
 internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena, U64 end_ns) {
+    prof_function_begin();
     Arena_Temporary scratch = arena_get_scratch(&arena, 1);
     Str8 serialized_events = { 0 };
     os_mutex_scope(pipewire_state->c2u_ring_mutex)
@@ -1335,34 +1342,35 @@ internal Pipewire_EventList pipewire_c2u_pop_events(Arena *arena, U64 end_ns) {
 
     Pipewire_EventList events = pipewire_event_list_from_serialized_string(arena, serialized_events);
     arena_end_temporary(scratch);
+    prof_function_end();
     return events;
 }
 
 internal Void pipewire_c2u_push_events(Pipewire_EventList events) {
-    if (!events.count) {
-        return;
-    }
-
-    Arena_Temporary scratch = arena_get_scratch(0, 0);
-    Str8 serialized_events = pipewire_serialized_string_from_event_list(scratch.arena, events);
-    os_mutex_scope(pipewire_state->c2u_ring_mutex)
-    for (;;) {
-        U64 unconsumed_size = pipewire_state->c2u_ring_write_position - pipewire_state->c2u_ring_read_position;
-        U64 available_size  = pipewire_state->c2u_ring_size - unconsumed_size;
-        if (available_size >= sizeof(serialized_events.size) + serialized_events.size) {
-            pipewire_state->c2u_ring_write_position += ring_write_type(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_write_position, &serialized_events.size);
-            pipewire_state->c2u_ring_write_position += ring_write(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_write_position, serialized_events.data, serialized_events.size);
-            break;
+    prof_function_begin();
+    if (events.count) {
+        Arena_Temporary scratch = arena_get_scratch(0, 0);
+        Str8 serialized_events = pipewire_serialized_string_from_event_list(scratch.arena, events);
+        os_mutex_scope(pipewire_state->c2u_ring_mutex)
+        for (;;) {
+            U64 unconsumed_size = pipewire_state->c2u_ring_write_position - pipewire_state->c2u_ring_read_position;
+            U64 available_size  = pipewire_state->c2u_ring_size - unconsumed_size;
+            if (available_size >= sizeof(serialized_events.size) + serialized_events.size) {
+                pipewire_state->c2u_ring_write_position += ring_write_type(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_write_position, &serialized_events.size);
+                pipewire_state->c2u_ring_write_position += ring_write(pipewire_state->c2u_ring_base, pipewire_state->c2u_ring_size, pipewire_state->c2u_ring_write_position, serialized_events.data, serialized_events.size);
+                break;
+            }
+            os_condition_variable_wait(pipewire_state->c2u_ring_condition_variable, pipewire_state->c2u_ring_mutex, U64_MAX);
         }
-        os_condition_variable_wait(pipewire_state->c2u_ring_condition_variable, pipewire_state->c2u_ring_mutex, U64_MAX);
-    }
-    os_condition_variable_signal(pipewire_state->c2u_ring_condition_variable);
+        os_condition_variable_signal(pipewire_state->c2u_ring_condition_variable);
 
-    if (pipewire_state->wakeup_hook) {
-        pipewire_state->wakeup_hook();
-    }
+        if (pipewire_state->wakeup_hook) {
+            pipewire_state->wakeup_hook();
+        }
 
-    arena_end_temporary(scratch);
+        arena_end_temporary(scratch);
+    }
+    prof_function_end();
 }
 
 
@@ -1370,6 +1378,7 @@ internal Void pipewire_c2u_push_events(Pipewire_EventList events) {
 // NOTE(simon): User to control thread communication.
 
 internal Pipewire_CommandList pipewire_u2c_pop_commands(Arena *arena, U64 end_ns) {
+    prof_function_begin();
     Arena_Temporary scratch = arena_get_scratch(&arena, 1);
     Str8 serialized_commands = { 0 };
     os_mutex_scope(pipewire_state->u2c_ring_mutex)
@@ -1393,29 +1402,30 @@ internal Pipewire_CommandList pipewire_u2c_pop_commands(Arena *arena, U64 end_ns
 
     Pipewire_CommandList commands = pipewire_command_list_from_serialized_string(arena, serialized_commands);
     arena_end_temporary(scratch);
+    prof_function_end();
     return commands;
 }
 
 internal Void pipewire_u2c_push_commands(Pipewire_CommandList commands) {
-    if (!commands.count) {
-        return;
-    }
-
-    Arena_Temporary scratch = arena_get_scratch(0, 0);
-    Str8 serialized_commands = pipewire_serialized_string_from_command_list(scratch.arena, commands);
-    os_mutex_scope(pipewire_state->u2c_ring_mutex)
-    for (;;) {
-        U64 unconsumed_size = pipewire_state->u2c_ring_write_position - pipewire_state->u2c_ring_read_position;
-        U64 available_size  = pipewire_state->u2c_ring_size - unconsumed_size;
-        if (available_size >= sizeof(serialized_commands.size) + serialized_commands.size) {
-            pipewire_state->u2c_ring_write_position += ring_write_type(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_write_position, &serialized_commands.size);
-            pipewire_state->u2c_ring_write_position += ring_write(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_write_position, serialized_commands.data, serialized_commands.size);
-            break;
+    prof_function_begin();
+    if (commands.count) {
+        Arena_Temporary scratch = arena_get_scratch(0, 0);
+        Str8 serialized_commands = pipewire_serialized_string_from_command_list(scratch.arena, commands);
+        os_mutex_scope(pipewire_state->u2c_ring_mutex)
+        for (;;) {
+            U64 unconsumed_size = pipewire_state->u2c_ring_write_position - pipewire_state->u2c_ring_read_position;
+            U64 available_size  = pipewire_state->u2c_ring_size - unconsumed_size;
+            if (available_size >= sizeof(serialized_commands.size) + serialized_commands.size) {
+                pipewire_state->u2c_ring_write_position += ring_write_type(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_write_position, &serialized_commands.size);
+                pipewire_state->u2c_ring_write_position += ring_write(pipewire_state->u2c_ring_base, pipewire_state->u2c_ring_size, pipewire_state->u2c_ring_write_position, serialized_commands.data, serialized_commands.size);
+                break;
+            }
+            os_condition_variable_wait(pipewire_state->u2c_ring_condition_variable, pipewire_state->u2c_ring_mutex, U64_MAX);
         }
-        os_condition_variable_wait(pipewire_state->u2c_ring_condition_variable, pipewire_state->u2c_ring_mutex, U64_MAX);
+        os_condition_variable_signal(pipewire_state->u2c_ring_condition_variable);
+        arena_end_temporary(scratch);
     }
-    os_condition_variable_signal(pipewire_state->u2c_ring_condition_variable);
-    arena_end_temporary(scratch);
+    prof_function_end();
 }
 
 
