@@ -462,7 +462,7 @@ internal Void pipewire_apply_events(Pipewire_EventList events) {
 
                     // NOTE(simon): Free metadata.
                     for (Pipewire_Metadata *metadata = object->first_metadata, *next = 0; metadata; metadata = next) {
-                        next = metadata;
+                        next = metadata->next;
                         pipewire_free_string(metadata->key);
                         pipewire_free_string(metadata->type);
                         pipewire_free_string(metadata->value);
